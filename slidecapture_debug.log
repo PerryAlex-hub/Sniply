@@ -1,0 +1,54 @@
+2026-11-02 14:40:15,184 DEBUG slidecapture.capture.worker: worker started: region=Region(left=368, top=146, width=1470, height=826) interval_ms=1000 target_pid=7880
+2026-11-02 14:40:16,234 DEBUG slidecapture.capture.worker: tick: grabbed frame shape=(826, 1470, 3) mean=243.23
+2026-11-02 14:40:16,234 DEBUG slidecapture.capture.worker: occlusion check: target_pid=7880 current_pid=7880 occluded=False
+2026-11-02 14:40:16,236 DEBUG slidecapture.detection.pipeline: pipeline: force-evaluating frame (target just became visible)
+2026-11-02 14:40:16,236 DEBUG slidecapture.detection.pipeline: pipeline: first-ever candidate -> SAVE
+2026-11-02 14:40:16,501 DEBUG slidecapture.capture.worker: tick: decision=Decision.SAVE
+2026-11-02 14:40:16,519 INFO slidecapture.capture.worker: saved screenshot: C:\Users\DELL\AppData\Local\SlideCapture\Sessions\Lecture\screenshots\slide_0001.png
+2026-11-02 14:40:17,223 DEBUG slidecapture.capture.worker: tick: grabbed frame shape=(826, 1470, 3) mean=229.84
+2026-11-02 14:40:17,223 DEBUG slidecapture.capture.worker: occlusion check: target_pid=7880 current_pid=7880 occluded=False
+2026-11-02 14:40:17,238 DEBUG slidecapture.detection.stability: stability: diff=19.8841 threshold=4.0000 streak=1/2
+2026-11-02 14:40:17,238 DEBUG slidecapture.capture.worker: tick: decision=Decision.PENDING
+2026-11-02 14:40:18,243 DEBUG slidecapture.capture.worker: tick: grabbed frame shape=(826, 1470, 3) mean=229.84
+2026-11-02 14:40:18,243 DEBUG slidecapture.capture.worker: occlusion check: target_pid=7880 current_pid=7880 occluded=False
+2026-11-02 14:40:18,254 DEBUG slidecapture.detection.stability: stability: diff=0.0000 threshold=4.0000 streak=2/2
+2026-11-02 14:40:18,254 DEBUG slidecapture.detection.stability: stability: candidate settled
+2026-11-02 14:40:18,279 DEBUG slidecapture.detection.pipeline: pipeline: candidate settled, min phash distance=22 (dup<=5, new>=12)
+2026-11-02 14:40:18,279 DEBUG slidecapture.detection.pipeline: pipeline: SAVE (phash)
+2026-11-02 14:40:18,286 DEBUG slidecapture.capture.worker: tick: decision=Decision.SAVE
+2026-11-02 14:40:18,312 INFO slidecapture.capture.worker: saved screenshot: C:\Users\DELL\AppData\Local\SlideCapture\Sessions\Lecture\screenshots\slide_0002.png
+2026-11-02 14:40:19,228 DEBUG slidecapture.capture.worker: tick: grabbed frame shape=(826, 1470, 3) mean=242.87
+2026-11-02 14:40:19,228 DEBUG slidecapture.capture.worker: occlusion check: target_pid=7880 current_pid=7880 occluded=False
+2026-11-02 14:40:19,242 DEBUG slidecapture.detection.stability: stability: diff=18.6091 threshold=4.0000 streak=1/2
+2026-11-02 14:40:19,242 DEBUG slidecapture.capture.worker: tick: decision=Decision.PENDING
+2026-11-02 14:40:20,240 DEBUG slidecapture.capture.worker: tick: grabbed frame shape=(826, 1470, 3) mean=242.87
+2026-11-02 14:40:20,240 DEBUG slidecapture.capture.worker: occlusion check: target_pid=7880 current_pid=7880 occluded=False
+2026-11-02 14:40:20,252 DEBUG slidecapture.detection.stability: stability: diff=0.0000 threshold=4.0000 streak=2/2
+2026-11-02 14:40:20,252 DEBUG slidecapture.detection.stability: stability: candidate settled
+2026-11-02 14:40:20,283 DEBUG slidecapture.detection.pipeline: pipeline: candidate settled, min phash distance=8 (dup<=5, new>=12)
+2026-11-02 14:40:20,289 DEBUG slidecapture.detection.pipeline: pipeline: ambiguous band, ssim=0.6589 (dup>=0.9000)
+2026-11-02 14:40:20,301 DEBUG slidecapture.capture.worker: tick: decision=Decision.SAVE
+2026-11-02 14:40:20,323 INFO slidecapture.capture.worker: saved screenshot: C:\Users\DELL\AppData\Local\SlideCapture\Sessions\Lecture\screenshots\slide_0003.png
+2026-11-02 14:40:21,234 DEBUG slidecapture.capture.worker: tick: grabbed frame shape=(826, 1470, 3) mean=229.84
+2026-11-02 14:40:21,234 DEBUG slidecapture.capture.worker: occlusion check: target_pid=7880 current_pid=7880 occluded=False
+2026-11-02 14:40:21,247 DEBUG slidecapture.detection.stability: stability: diff=18.6091 threshold=4.0000 streak=1/2
+2026-11-02 14:40:21,247 DEBUG slidecapture.capture.worker: tick: decision=Decision.PENDING
+2026-11-02 14:40:22,239 DEBUG slidecapture.capture.worker: tick: grabbed frame shape=(826, 1470, 3) mean=243.23
+2026-11-02 14:40:22,239 DEBUG slidecapture.capture.worker: occlusion check: target_pid=7880 current_pid=7880 occluded=False
+2026-11-02 14:40:22,265 DEBUG slidecapture.detection.stability: stability: diff=19.8872 threshold=4.0000 streak=1/2
+2026-11-02 14:40:22,265 DEBUG slidecapture.capture.worker: tick: decision=Decision.PENDING
+2026-11-02 14:40:23,230 DEBUG slidecapture.capture.worker: tick: grabbed frame shape=(826, 1470, 3) mean=243.23
+2026-11-02 14:40:23,240 DEBUG slidecapture.capture.worker: occlusion check: target_pid=7880 current_pid=7880 occluded=False
+2026-11-02 14:40:23,258 DEBUG slidecapture.detection.stability: stability: diff=0.0000 threshold=4.0000 streak=2/2
+2026-11-02 14:40:23,258 DEBUG slidecapture.detection.stability: stability: candidate settled
+2026-11-02 14:40:23,276 DEBUG slidecapture.detection.pipeline: pipeline: candidate settled, min phash distance=0 (dup<=5, new>=12)
+2026-11-02 14:40:23,276 DEBUG slidecapture.detection.pipeline: pipeline: DUPLICATE (phash)
+2026-11-02 14:40:23,276 DEBUG slidecapture.capture.worker: tick: decision=Decision.DUPLICATE
+2026-11-02 14:40:24,223 DEBUG slidecapture.capture.worker: tick: grabbed frame shape=(826, 1470, 3) mean=243.23
+2026-11-02 14:40:24,223 DEBUG slidecapture.capture.worker: occlusion check: target_pid=7880 current_pid=7880 occluded=False
+2026-11-02 14:40:24,230 DEBUG slidecapture.detection.stability: stability: diff=0.0000 threshold=4.0000 streak=3/2
+2026-11-02 14:40:24,230 DEBUG slidecapture.capture.worker: tick: decision=Decision.PENDING
+2026-11-02 14:40:25,212 DEBUG slidecapture.capture.worker: tick: grabbed frame shape=(826, 1470, 3) mean=243.23
+2026-11-02 14:40:25,212 DEBUG slidecapture.capture.worker: occlusion check: target_pid=7880 current_pid=7880 occluded=False
+2026-11-02 14:40:25,226 DEBUG slidecapture.detection.stability: stability: diff=0.0000 threshold=4.0000 streak=4/2
+2026-11-02 14:40:25,227 DEBUG slidecapture.capture.worker: tick: decision=Decision.PENDING

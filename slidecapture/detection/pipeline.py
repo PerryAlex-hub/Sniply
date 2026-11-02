@@ -11,6 +11,7 @@ Stage order, cheapest first:
      since it's the most expensive stage.
 """
 
+import logging
 from dataclasses import dataclass
 from enum import Enum, auto
 
@@ -21,6 +22,8 @@ from slidecapture.detection.frame_diff import downscale_grayscale
 from slidecapture.detection.phash import compute_phash, hamming_distance
 from slidecapture.detection.ssim import compute_ssim_gray
 from slidecapture.detection.stability import StabilityTracker
+
+logger = logging.getLogger(__name__)
 
 
 class Decision(Enum):
@@ -76,8 +79,30 @@ class DetectionPipeline:
         candidate = self._stability.update(frame)
         if candidate is None:
             return PipelineResult(Decision.PENDING)
+        return self._evaluate_candidate(candidate)
 
+    def force_evaluate(self, frame: np.ndarray) -> PipelineResult:
+        """Evaluate `frame` immediately, bypassing the normal
+        settle-over-N-ticks wait -- used when the capture target just
+        became visible (first tick ever, or right after the user
+        switched back to it following an occlusion). Waiting for it to
+        "settle" the normal way serves no purpose here: the frame is
+        already as settled as it's going to be from the capture's
+        perspective, and whatever is currently on screen is exactly
+        what the user wants captured without an extra 1-2 tick delay.
+
+        This still goes through the full dedup pipeline below, so if
+        the content turns out to be unchanged from an earlier save,
+        it's correctly recognized as a duplicate rather than spamming
+        a redundant save on every reappearance.
+        """
+        self._stability.set_baseline(frame)
+        logger.debug("pipeline: force-evaluating frame (target just became visible)")
+        return self._evaluate_candidate(frame)
+
+    def _evaluate_candidate(self, candidate: np.ndarray) -> PipelineResult:
         if not self._saved:
+            logger.debug("pipeline: first-ever candidate -> SAVE")
             self._register(candidate)
             return PipelineResult(Decision.SAVE, candidate)
 
@@ -85,17 +110,23 @@ class DetectionPipeline:
         distances = [hamming_distance(cand_hash, entry.phash) for entry in self._saved]
         min_dist = min(distances)
         closest = self._saved[distances.index(min_dist)]
+        logger.debug("pipeline: candidate settled, min phash distance=%d (dup<=%d, new>=%d)",
+                     min_dist, self.config.phash_duplicate_max, self.config.phash_new_min)
 
         if min_dist <= self.config.phash_duplicate_max:
+            logger.debug("pipeline: DUPLICATE (phash)")
             return PipelineResult(Decision.DUPLICATE)
 
         if min_dist >= self.config.phash_new_min:
+            logger.debug("pipeline: SAVE (phash)")
             self._register(candidate, precomputed_hash=cand_hash)
             return PipelineResult(Decision.SAVE, candidate)
 
         # Ambiguous band: let SSIM break the tie against the closest match.
         cand_gray = downscale_grayscale(candidate, self.config.compare_width)
         similarity = compute_ssim_gray(cand_gray, closest.gray)
+        logger.debug("pipeline: ambiguous band, ssim=%.4f (dup>=%.4f)",
+                     similarity, self.config.ssim_duplicate_threshold)
         if similarity >= self.config.ssim_duplicate_threshold:
             return PipelineResult(Decision.DUPLICATE)
 

@@ -2,11 +2,8 @@
 one to reopen.
 """
 
-from pathlib import Path
-
 from PySide6.QtWidgets import (
     QDialog,
-    QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -18,15 +15,19 @@ from PySide6.QtWidgets import (
 
 
 class NewSessionDialog(QDialog):
-    def __init__(self, default_dir: Path, parent=None):
+    """Just asks for a name. Where the session's raw screenshots and
+    database actually live is the app's own business (see
+    main_window.APP_DATA_ROOT) -- the user shouldn't need to think
+    about a save location until they're ready to export a finished
+    PDF/images, which is a separate, deliberate choice (see the
+    export dialogs, which default to Downloads).
+    """
+
+    def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("New Lecture Session")
-        self._chosen_dir = default_dir
 
         self.name_edit = QLineEdit("Lecture")
-        self.dir_label = QLabel(str(default_dir))
-        browse_button = QPushButton("Choose Folder...")
-        browse_button.clicked.connect(self._browse)
 
         ok_button = QPushButton("Create")
         ok_button.clicked.connect(self.accept)
@@ -36,26 +37,14 @@ class NewSessionDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Session name:"))
         layout.addWidget(self.name_edit)
-        layout.addWidget(QLabel("Save location:"))
-        layout.addWidget(self.dir_label)
-        layout.addWidget(browse_button)
 
         button_row = QHBoxLayout()
         button_row.addWidget(ok_button)
         button_row.addWidget(cancel_button)
         layout.addLayout(button_row)
 
-    def _browse(self) -> None:
-        chosen = QFileDialog.getExistingDirectory(self, "Choose Save Location", str(self._chosen_dir))
-        if chosen:
-            self._chosen_dir = Path(chosen)
-            self.dir_label.setText(chosen)
-
     def session_name(self) -> str:
         return self.name_edit.text().strip() or "Lecture"
-
-    def save_dir(self) -> Path:
-        return self._chosen_dir
 
 
 class OpenSessionDialog(QDialog):

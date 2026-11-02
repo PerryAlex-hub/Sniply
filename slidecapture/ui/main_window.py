@@ -9,6 +9,7 @@ keeping that boundary one-directional is what keeps detection/
 capture testable without a display.
 """
 
+import os
 import time
 from pathlib import Path
 
@@ -33,12 +34,23 @@ from slidecapture.detection.pipeline import DetectionPipeline
 from slidecapture.export.image_export import export_images
 from slidecapture.export.pdf_export import EmptyExportError, export_pdf
 from slidecapture.storage.session import SessionStore
+from slidecapture.ui.floating_bar import FloatingControlBar
 from slidecapture.ui.gallery import GalleryWidget
+from slidecapture.ui.viewer import ScreenshotViewerDialog
 from slidecapture.ui.overlay import RegionOverlay
 from slidecapture.ui.session_dialog import NewSessionDialog, OpenSessionDialog
 from slidecapture.ui.settings_dialog import SettingsDialog
 
-DEFAULT_SESSIONS_ROOT = Path.home() / "SlideCapture Sessions"
+# Where raw session data (screenshots + session.db) lives -- the
+# app's own storage, not something the user picks. This follows the
+# standard Windows convention for per-user application data rather
+# than cluttering the user's home folder directly.
+APP_DATA_ROOT = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "SlideCapture" / "Sessions"
+
+# Where exported PDFs/images default to -- a deliberate, separate
+# choice the user makes only when they're ready to hand off a
+# finished deck, not at session-creation time.
+DEFAULT_EXPORT_DIR = Path.home() / "Downloads"
 
 
 class MainWindow(QMainWindow):
@@ -50,10 +62,35 @@ class MainWindow(QMainWindow):
         self.config = AppConfig()
         self.store: SessionStore | None = None
         self.session_id: int | None = None
+        self.session_name: str | None = None
         self.save_dir: Path | None = None
         self.region: Region | None = None
+        # The process (PID) that actually owned the window at the
+        # capture region when it was selected (see
+        # RegionOverlay.mouseReleaseEvent) -- this, not whatever's in
+        # front when Start Capture is later clicked, is the correct
+        # baseline for the occlusion guard.
+        self._target_pid_hint = 0
         self.controller: CaptureController | None = None
-        self._overlay: RegionOverlay | None = None
+        # Created once and reused for every region selection -- see
+        # RegionOverlay's docstring for why (avoids re-creating a
+        # native window, and its first-paint flash, on every click).
+        self._overlay = RegionOverlay()
+        self._overlay.region_selected.connect(self._on_region_selected)
+        self._overlay.selection_cancelled.connect(self._on_selection_cancelled)
+
+        # Shown instead of this main window while a capture session is
+        # actively running (see _enter_compact_mode) -- a small,
+        # draggable, always-on-top bar with just Pause/Resume/Stop/
+        # Manual Capture/Expand, so the user never needs the full
+        # window back on screen (and the app never has to repeatedly
+        # hide/show it) just to glance at or watch a lecture.
+        self._floating_bar = FloatingControlBar()
+        self._floating_bar.pause_requested.connect(self._on_pause)
+        self._floating_bar.resume_requested.connect(self._on_resume)
+        self._floating_bar.stop_requested.connect(self._on_stop)
+        self._floating_bar.manual_capture_requested.connect(self._on_manual_capture)
+        self._floating_bar.expand_requested.connect(self._exit_compact_mode)
 
         self.saved_count = 0
         self.duplicate_count = 0
@@ -142,6 +179,7 @@ class MainWindow(QMainWindow):
         self.gallery.deletion_requested.connect(self._on_delete_screenshot)
         self.gallery.reorder_requested.connect(self._on_reorder)
         self.gallery.selection_changed.connect(self._on_selection_changed)
+        self.gallery.open_requested.connect(self._on_open_screenshot)
         root.addWidget(self.gallery)
 
         # Export row
@@ -167,15 +205,26 @@ class MainWindow(QMainWindow):
     # ---- Session management ---------------------------------------
 
     def _on_new_session(self) -> None:
-        DEFAULT_SESSIONS_ROOT.mkdir(parents=True, exist_ok=True)
-        dialog = NewSessionDialog(DEFAULT_SESSIONS_ROOT, self)
-        if dialog.exec() != dialog.Accepted:
+        APP_DATA_ROOT.mkdir(parents=True, exist_ok=True)
+        dialog = NewSessionDialog(self)
+        # QDialog.exec() returns DialogCode.Accepted (1) / Rejected (0);
+        # comparing truthiness avoids PySide6's scoped-enum access
+        # quirks (dialog.Accepted isn't valid -- it's QDialog.DialogCode.Accepted).
+        if not dialog.exec():
             return
 
         name = dialog.session_name()
-        save_dir = dialog.save_dir() / name
+        save_dir = APP_DATA_ROOT / name
+        if save_dir.exists():
+            # Folder name derived from the session name collides with
+            # an existing one (e.g. two sessions both named "Lecture")
+            # -- disambiguate rather than silently reusing/overwriting
+            # someone else's session data.
+            save_dir = APP_DATA_ROOT / f"{name}_{time.strftime('%Y%m%d_%H%M%S')}"
+
         self.store = SessionStore(save_dir / "session.db")
         self.session_id = self.store.create_session(name, save_dir)
+        self.session_name = name
         self.save_dir = save_dir
         self.saved_count = 0
         self.duplicate_count = 0
@@ -184,26 +233,49 @@ class MainWindow(QMainWindow):
         self.gallery.set_screenshots([])
         self._set_capture_controls_enabled(has_region=self.region is not None, is_capturing=False)
 
+    def _discover_sessions(self) -> list[tuple[int, str, str]]:
+        """Scan APP_DATA_ROOT for session folders (each has its own
+        session.db, one row per session -- see storage/session.py)
+        and collect every session across all of them, so "Open
+        Session" can offer a single pick-list instead of making the
+        user browse the filesystem for a folder they never chose."""
+        APP_DATA_ROOT.mkdir(parents=True, exist_ok=True)
+        found: list[tuple[int, str, str]] = []
+        for entry in APP_DATA_ROOT.iterdir():
+            db_path = entry / "session.db"
+            if not db_path.exists():
+                continue
+            store = SessionStore(db_path)
+            found.extend(store.list_sessions())
+            store.close()
+        return found
+
     def _on_open_session(self) -> None:
-        DEFAULT_SESSIONS_ROOT.mkdir(parents=True, exist_ok=True)
-        # Session metadata is per-session-folder SQLite; to list sessions
-        # we need an existing db. Ask the user to pick the session folder.
-        chosen = QFileDialog.getExistingDirectory(self, "Choose Session Folder", str(DEFAULT_SESSIONS_ROOT))
-        if not chosen:
-            return
-        db_path = Path(chosen) / "session.db"
-        if not db_path.exists():
-            QMessageBox.warning(self, "Not a Session Folder", "No session database found in that folder.")
+        sessions = self._discover_sessions()
+        if not sessions:
+            QMessageBox.information(self, "No Sessions", "No previous sessions were found.")
             return
 
+        dialog = OpenSessionDialog(sessions, self)
+        if not dialog.exec():
+            return
+        chosen_id = dialog.selected_session_id()
+        chosen = next((s for s in sessions if s[0] == chosen_id), None)
+        if chosen is None:
+            return
+
+        _, _, save_dir = chosen
+        db_path = Path(save_dir) / "session.db"
         self.store = SessionStore(db_path)
-        sessions = self.store.list_sessions()
-        if not sessions:
+        rows = self.store.list_sessions()
+        row = next((r for r in rows if r[0] == chosen_id), None)
+        if row is None:
             QMessageBox.warning(self, "Empty Session", "That session has no recorded data.")
             return
 
-        session_id, name, save_dir = sessions[0]
+        session_id, name, save_dir = row
         self.session_id = session_id
+        self.session_name = name
         self.save_dir = Path(save_dir)
         self.session_label.setText(f"Session: {name}")
 
@@ -216,25 +288,56 @@ class MainWindow(QMainWindow):
 
     def _on_open_settings(self) -> None:
         dialog = SettingsDialog(self.config.detection, self)
-        if dialog.exec() == dialog.Accepted:
+        if dialog.exec():
             self.config.detection = dialog.updated_config()
 
     # ---- Region selection ------------------------------------------
 
     def _on_select_area(self) -> None:
-        screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
-        self._overlay = RegionOverlay(screen)
-        self._overlay.region_selected.connect(self._on_region_selected)
-        self._overlay.selection_cancelled.connect(
-            lambda: self.status_label.setText("Status: Selection cancelled")
-        )
-        self._overlay.showFullScreen()
+        """Hide the main window first so it isn't sitting on top of
+        whatever the user is trying to select (this is what Snipping
+        Tool does too) -- then give Windows a moment to actually
+        repaint the now-revealed desktop before the overlay grabs
+        focus, or the overlay can flash in before the window beneath
+        it has redrawn.
+        """
+        self.hide()
+        QTimer.singleShot(350, self._show_overlay)
 
-    def _on_region_selected(self, region: Region) -> None:
+    def _show_overlay(self) -> None:
+        screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
+        # self._overlay is created once in __init__ and reused here
+        # (see RegionOverlay's docstring) -- constructing a fresh
+        # instance on every click was the main source of the white
+        # flash, since each one forced the OS to create a brand-new
+        # native window surface from scratch.
+        self._overlay.prepare_for_screen(screen)
+        # show_revealed(), not show(): it shows the window fully
+        # transparent and fades it in a frame later, which papers over
+        # any remaining first-paint flash regardless of its root cause
+        # (see RegionOverlay.show_revealed). Also not showFullScreen():
+        # the overlay's geometry is already set to the exact target
+        # screen rect (see prepare_for_screen), and showFullScreen()
+        # would additionally trigger Windows' native maximize-transition
+        # animation on top of all this.
+        self._overlay.show_revealed()
+        self._overlay.activateWindow()
+
+    def _on_region_selected(self, region: Region, target_pid_hint: int) -> None:
+        self.show()
+        self.raise_()
+        self.activateWindow()
         self.region = region
+        self._target_pid_hint = target_pid_hint
         self.status_label.setText(f"Status: Region selected ({region.width}x{region.height})")
         self._set_capture_controls_enabled(has_region=True, is_capturing=False)
         self._show_region_preview(region)
+
+    def _on_selection_cancelled(self) -> None:
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        self.status_label.setText("Status: Selection cancelled")
 
     def _show_region_preview(self, region: Region) -> None:
         try:
@@ -264,10 +367,16 @@ class MainWindow(QMainWindow):
         self.controller = CaptureController(
             self.region,
             pipeline,
-            self.store,
+            self.store.db_path,
             self.session_id,
-            self.save_dir,
+            # Raw auto-saved screenshots live in a "screenshots" subfolder
+            # rather than the session root, so the root stays clean for
+            # the database and whatever you choose to export there --
+            # otherwise exporting a PDF into the session folder mixes it
+            # in visually with 100+ raw per-tick capture files.
+            self.save_dir / "screenshots",
             self.config.detection.capture_interval_ms,
+            self._target_pid_hint,
         )
         self.controller.worker.screenshot_saved.connect(self._on_screenshot_saved)
         self.controller.worker.duplicate_ignored.connect(self._on_duplicate_ignored)
@@ -279,16 +388,19 @@ class MainWindow(QMainWindow):
         self._session_start = time.time()
         self._duration_timer.start()
         self._set_capture_controls_enabled(has_region=True, is_capturing=True, paused=False)
+        self._enter_compact_mode()
 
     def _on_pause(self) -> None:
         if self.controller:
             self.controller.pause()
         self._set_capture_controls_enabled(has_region=True, is_capturing=True, paused=True)
+        self._floating_bar.set_paused(True)
 
     def _on_resume(self) -> None:
         if self.controller:
             self.controller.resume()
         self._set_capture_controls_enabled(has_region=True, is_capturing=True, paused=False)
+        self._floating_bar.set_paused(False)
 
     def _on_stop(self) -> None:
         if self.controller:
@@ -297,14 +409,34 @@ class MainWindow(QMainWindow):
         self._duration_timer.stop()
         self._set_capture_controls_enabled(has_region=True, is_capturing=False)
         self.status_label.setText("Status: Stopped")
+        self._exit_compact_mode()
 
     def _on_manual_capture(self) -> None:
         if self.controller:
             self.controller.manual_capture()
 
+    def _enter_compact_mode(self) -> None:
+        """Swap the full window for the small floating control bar
+        once capture is actively running -- see FloatingControlBar's
+        docstring for why this exists instead of just leaving the big
+        window up."""
+        self.hide()
+        self._floating_bar.set_paused(False)
+        self._floating_bar.show()
+
+    def _exit_compact_mode(self) -> None:
+        """Bring the full window back (gallery, export, settings...)
+        without necessarily stopping capture -- the Expand button on
+        the floating bar does this, as does Stop."""
+        self._floating_bar.hide()
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
     def closeEvent(self, event) -> None:
         if self.controller:
             self.controller.stop()
+        self._floating_bar.hide()
         event.accept()
 
     # ---- Worker signal handlers --------------------------------------
@@ -321,9 +453,11 @@ class MainWindow(QMainWindow):
 
     def _on_status_changed(self, status: str) -> None:
         self.status_label.setText(f"Status: {status}")
+        self._floating_bar.set_status_text(status)
 
     def _on_capture_error(self, message: str) -> None:
         self.status_label.setText(f"Status: {message}")
+        self._floating_bar.set_status_text(message)
 
     def _on_preview_frame(self, frame: np.ndarray) -> None:
         self._set_preview_image(frame, is_bgra=False)
@@ -360,6 +494,10 @@ class MainWindow(QMainWindow):
         if self.store is not None:
             self.store.set_selected_for_export(screenshot_id, selected)
 
+    def _on_open_screenshot(self, file_path: str) -> None:
+        dialog = ScreenshotViewerDialog(file_path, self)
+        dialog.exec()
+
     # ---- Export ----------------------------------------------------------
 
     def _selected_paths_in_order(self) -> list[Path]:
@@ -374,29 +512,39 @@ class MainWindow(QMainWindow):
         if not paths:
             QMessageBox.warning(self, "Nothing to Export", "No screenshots are selected for export.")
             return
-        output, _ = QFileDialog.getSaveFileName(self, "Export PDF", str(self.save_dir or Path.home()), "PDF Files (*.pdf)")
+        DEFAULT_EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+        default_name = f"{self.session_name or 'SlideCapture'}.pdf"
+        default_path = DEFAULT_EXPORT_DIR / default_name
+        output, _ = QFileDialog.getSaveFileName(self, "Export PDF", str(default_path), "PDF Files (*.pdf)")
         if not output:
             return
         try:
             export_pdf(paths, Path(output))
         except EmptyExportError:
             QMessageBox.warning(self, "Nothing to Export", "No screenshots are selected for export.")
+            return
+        QMessageBox.information(self, "Export Complete", f"Exported {len(paths)} screenshot(s) to:\n{output}")
 
     def _on_export_images(self) -> None:
         paths = self._selected_paths_in_order()
         if not paths:
             QMessageBox.warning(self, "Nothing to Export", "No screenshots are selected for export.")
             return
-        output_dir = QFileDialog.getExistingDirectory(self, "Export Images To", str(self.save_dir or Path.home()))
+        DEFAULT_EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+        output_dir = QFileDialog.getExistingDirectory(self, "Export Images To", str(DEFAULT_EXPORT_DIR))
         if not output_dir:
             return
-        export_images(paths, Path(output_dir))
+        written = export_images(paths, Path(output_dir))
+        QMessageBox.information(self, "Export Complete", f"Exported {len(written)} screenshot(s) to:\n{output_dir}")
 
     # ---- Misc ----------------------------------------------------------
 
     def _refresh_counters(self) -> None:
         self.saved_label.setText(f"Saved: {self.saved_count}")
         self.duplicate_label.setText(f"Duplicates ignored: {self.duplicate_count}")
+        self._floating_bar.status_label.setToolTip(
+            f"Saved: {self.saved_count}  •  Duplicates ignored: {self.duplicate_count}"
+        )
 
     def _update_duration_label(self) -> None:
         if self._session_start is None:
