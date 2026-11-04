@@ -2,8 +2,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from slidecapture.export.image_export import export_images
-from slidecapture.export.pdf_export import EmptyExportError, export_pdf
+from sniply.export.image_export import export_images
+from sniply.export.pdf_export import EmptyExportError, export_pdf
 
 
 def _make_png(path, color):

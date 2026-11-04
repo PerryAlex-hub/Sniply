@@ -18,11 +18,11 @@ import mss
 import numpy as np
 from PySide6.QtCore import QObject, QThread, QTimer, Signal, Slot
 
-from slidecapture.capture.occlusion import process_at_region_center
-from slidecapture.capture.region import Region
-from slidecapture.detection.pipeline import Decision, DetectionPipeline
-from slidecapture.storage.screenshot_store import save_screenshot
-from slidecapture.storage.session import SessionStore
+from sniply.capture.occlusion import process_at_region_center
+from sniply.capture.region import Region
+from sniply.detection.pipeline import Decision, DetectionPipeline
+from sniply.storage.screenshot_store import save_screenshot
+from sniply.storage.session import SessionStore
 
 logger = logging.getLogger(__name__)
 
@@ -69,12 +69,12 @@ class CaptureWorker(QObject):
 
         # The process (PID) owning whatever's at the capture region --
         # see occlusion.py. This MUST come from outside (resolved by
-        # the UI at region-selection time, the one moment SlideCapture's
+        # the UI at region-selection time, the one moment Sniply's
         # own windows are both out of the way) rather than being
         # re-resolved here at start()/resume() time: by definition,
         # whoever calls start()/resume() just clicked a button in
-        # SlideCapture's own window, so "whatever's in front right
-        # now" would always resolve to SlideCapture itself, not the
+        # Sniply's own window, so "whatever's in front right
+        # now" would always resolve to Sniply itself, not the
         # user's actual presentation -- that was the bug that made the
         # occlusion guard treat the real target as an intruder the
         # instant the user switched to it.
@@ -111,7 +111,7 @@ class CaptureWorker(QObject):
         if self._target_pid == 0:
             # No hint was available (e.g. resuming a session without a
             # fresh region selection) -- best effort, with the known
-            # caveat that this will incorrectly anchor on SlideCapture's
+            # caveat that this will incorrectly anchor on Sniply's
             # own process since that's what's in front right now.
             self._target_pid = process_at_region_center(self._region)
         logger.debug(
@@ -130,9 +130,9 @@ class CaptureWorker(QObject):
         self._paused = False
         self._consecutive_errors = 0
         # Deliberately NOT re-resolving _target_pid or touching
-        # _occluded here: clicking Resume means SlideCapture's own
+        # _occluded here: clicking Resume means Sniply's own
         # window is what's currently in front, so re-resolving now
-        # would re-anchor on SlideCapture itself instead of the user's
+        # would re-anchor on Sniply itself instead of the user's
         # actual presentation -- exactly the bug described in
         # __init__. The normal per-tick occlusion check below picks
         # back up correctly against the target established at
@@ -231,7 +231,7 @@ class CaptureWorker(QObject):
         window when you switch from the editor into Slideshow (F5) --
         isn't mistaken for a different application entirely.
 
-        SlideCapture's own process is never treated as an occluder:
+        Sniply's own process is never treated as an occluder:
         the floating control bar (ui/floating_bar.py) is meant to be
         draggable anywhere, including directly over the capture
         region, and is excluded from the actual screen capture via

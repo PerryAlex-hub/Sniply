@@ -21,8 +21,8 @@ from PySide6.QtCore import QPoint, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QScreen
 from PySide6.QtWidgets import QWidget
 
-from slidecapture.capture.occlusion import process_at_region_center
-from slidecapture.capture.region import InvalidRegionError, Region
+from sniply.capture.occlusion import process_at_region_center
+from sniply.capture.region import InvalidRegionError, Region
 
 
 class RegionOverlay(QWidget):
@@ -143,11 +143,11 @@ class RegionOverlay(QWidget):
         # the signal: the main window is still hidden at this instant
         # too (see ui/main_window.py's _on_select_area), so this is
         # the one moment where WindowFromPoint can actually see past
-        # both of SlideCapture's own windows to the real content
+        # both of Sniply's own windows to the real content
         # underneath (e.g. PowerPoint). Resolving this later -- at
         # Start Capture click time, as an earlier version did -- always
-        # found SlideCapture's own process instead, since clicking that
-        # button necessarily means SlideCapture is what's focused.
+        # found Sniply's own process instead, since clicking that
+        # button necessarily means Sniply is what's focused.
         self.hide()
         target_pid = process_at_region_center(region)
         self.region_selected.emit(region, target_pid)

@@ -1,5 +1,5 @@
-from slidecapture.config.defaults import DetectionConfig
-from slidecapture.detection.stability import StabilityTracker
+from sniply.config.defaults import DetectionConfig
+from sniply.detection.stability import StabilityTracker
 from tests.fixtures.synthetic import make_slide, make_transition_frame, move_cursor_dot
 
 

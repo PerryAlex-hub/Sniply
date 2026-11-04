@@ -1,7 +1,7 @@
 """A small, draggable, always-on-top control bar shown WHILE capture
 is actively running, so the user never needs the full application
 window back on screen to pause/resume/stop or take a manual shot --
-and SlideCapture never has to hide/show the large main window during
+and Sniply never has to hide/show the large main window during
 an active session, which was a source of visible flicker on top of
 just being disruptive.
 
@@ -9,7 +9,7 @@ Excluded from screen capture via SetWindowDisplayAffinity (see
 capture/occlusion.py) -- it can be dragged anywhere on screen,
 including directly over the capture region itself, without ever
 appearing in a saved screenshot. The exclusion is also why the
-capture engine's occlusion guard special-cases SlideCapture's own
+capture engine's occlusion guard special-cases Sniply's own
 process (see worker.py): this bar visually sitting over the target
 doesn't actually affect what mss captures underneath it.
 """
@@ -17,8 +17,8 @@ doesn't actually affect what mss captures underneath it.
 from PySide6.QtCore import QPoint, QSize, Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QStyle, QWidget
 
-from slidecapture.capture.occlusion import exclude_window_from_capture
-from slidecapture.ui.icons import camera_icon, expand_icon, standard_icon
+from sniply.capture.occlusion import exclude_window_from_capture
+from sniply.ui.icons import camera_icon, expand_icon, standard_icon
 
 _ICON_SIZE = QSize(15, 15)
 

@@ -1,4 +1,4 @@
-# SlideCapture
+# Sniply
 
 A free, local-first Windows desktop app that automatically captures unique presentation slides during Zoom calls, PowerPoint presentations, or any screen-shared lecture — so students don't have to manually screenshot every slide change.
 
@@ -32,16 +32,16 @@ python main.py
 
 ```powershell
 pip install pyinstaller
-pyinstaller --name SlideCapture --windowed --onefile --icon assets/icon.ico --add-data "assets;assets" main.py
+pyinstaller --name Sniply --windowed --onefile --icon assets/icon.ico --add-data "assets;assets" main.py
 ```
 
 `--icon` sets the `.exe`'s own icon (File Explorer, taskbar); `--add-data` bundles `assets/icon.png` so the app can also set its in-app window icon at runtime (see `main.py`'s `_resource_path` helper, which resolves assets correctly both when run from source and from the frozen executable).
 
-The standalone executable is written to `dist/SlideCapture.exe` — it bundles Python and all dependencies, so it runs on a machine with no Python installed. That's what gets attached to a GitHub Release for distribution.
+The standalone executable is written to `dist/Sniply.exe` — it bundles Python and all dependencies, so it runs on a machine with no Python installed. That's what gets attached to a GitHub Release for distribution.
 
 ## Usage
 
-1. **New Session** — screenshots and session data are stored automatically under `%LOCALAPPDATA%\SlideCapture\Sessions\<name>`; you only pick a name.
+1. **New Session** — screenshots and session data are stored automatically under `%LOCALAPPDATA%\Sniply\Sessions\<name>`; you only pick a name.
 2. **Select Capture Area** — drag a rectangle around the slide content (e.g. your Zoom window), while it's actually visible on screen.
 3. **Start Capture** — the window hides and a small floating bar takes over. Switch to your lecture and go about watching it.
 4. **Pause / Resume / Manual Capture / Stop** from the floating bar, or click its expand icon to bring the full window back (gallery, export, settings) without stopping capture.
@@ -60,12 +60,12 @@ Detection sensitivity is tunable from **Settings** in the app:
 | Phash duplicate / new-content distance | 5 / 12 | Perceptual-hash thresholds for confidently same vs. confidently different |
 | SSIM duplicate threshold | 0.90 | Structural-similarity cutoff used only for the ambiguous middle band |
 
-Defaults live in [`slidecapture/config/defaults.py`](slidecapture/config/defaults.py).
+Defaults live in [`sniply/config/defaults.py`](sniply/config/defaults.py).
 
 ## Project structure
 
 ```
-slidecapture/
+sniply/
   capture/      screen grabbing, region selection, occlusion detection
   detection/    stability tracking, perceptual hashing, SSIM, the dedup pipeline
   storage/      session persistence (SQLite) and screenshot autosave
@@ -94,4 +94,4 @@ pytest
 
 1. Bump anything version-relevant, commit, and push to `main`.
 2. Build the executable (see above) and smoke-test it on a clean machine if possible.
-3. Create a GitHub Release and attach `dist/SlideCapture.exe` as a release asset — no installer or code signing required for personal/small-scale distribution.
+3. Create a GitHub Release and attach `dist/Sniply.exe` as a release asset — no installer or code signing required for personal/small-scale distribution.

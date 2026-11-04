@@ -1,4 +1,4 @@
-"""Default configuration values for SlideCapture.
+"""Default configuration values for Sniply.
 
 These are starting points established from the project spec; they're
 exposed as plain module-level constants so tests and the settings UI

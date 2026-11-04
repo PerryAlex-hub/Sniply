@@ -11,7 +11,7 @@ when phash distance falls in the ambiguous band.
 import numpy as np
 from skimage.metrics import structural_similarity
 
-from slidecapture.detection.frame_diff import downscale_grayscale
+from sniply.detection.frame_diff import downscale_grayscale
 
 
 def compute_ssim_gray(gray_a: np.ndarray, gray_b: np.ndarray) -> float:

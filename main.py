@@ -1,4 +1,4 @@
-"""SlideCapture entry point."""
+"""Sniply entry point."""
 
 import logging
 import sys
@@ -7,10 +7,10 @@ from pathlib import Path
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
-from slidecapture.ui.main_window import MainWindow
-from slidecapture.ui.theme import STYLESHEET
+from sniply.ui.main_window import MainWindow
+from sniply.ui.theme import STYLESHEET
 
-LOG_PATH = Path(__file__).parent / "slidecapture_debug.log"
+LOG_PATH = Path(__file__).parent / "sniply_debug.log"
 
 
 def _resource_path(relative: str) -> Path:

@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
 )
 
-from slidecapture.config.defaults import DetectionConfig
+from sniply.config.defaults import DetectionConfig
 
 
 class SettingsDialog(QDialog):

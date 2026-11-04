@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from slidecapture.storage.session import Screenshot
+from sniply.storage.session import Screenshot
 
 THUMB_SIZE = 160
 

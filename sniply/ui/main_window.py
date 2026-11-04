@@ -32,20 +32,20 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from slidecapture.capture.region import InvalidRegionError, Region
-from slidecapture.capture.worker import CaptureController
-from slidecapture.config.defaults import AppConfig
-from slidecapture.detection.pipeline import DetectionPipeline
-from slidecapture.export.image_export import export_images
-from slidecapture.export.pdf_export import EmptyExportError, export_pdf
-from slidecapture.storage.session import SessionStore
-from slidecapture.ui.floating_bar import FloatingControlBar
-from slidecapture.ui.gallery import GalleryWidget
-from slidecapture.ui.icons import camera_icon, crosshair_icon, gear_icon, standard_icon
-from slidecapture.ui.viewer import ScreenshotViewerDialog
-from slidecapture.ui.overlay import RegionOverlay
-from slidecapture.ui.session_dialog import NewSessionDialog, OpenSessionDialog
-from slidecapture.ui.settings_dialog import SettingsDialog
+from sniply.capture.region import InvalidRegionError, Region
+from sniply.capture.worker import CaptureController
+from sniply.config.defaults import AppConfig
+from sniply.detection.pipeline import DetectionPipeline
+from sniply.export.image_export import export_images
+from sniply.export.pdf_export import EmptyExportError, export_pdf
+from sniply.storage.session import SessionStore
+from sniply.ui.floating_bar import FloatingControlBar
+from sniply.ui.gallery import GalleryWidget
+from sniply.ui.icons import camera_icon, crosshair_icon, gear_icon, standard_icon
+from sniply.ui.viewer import ScreenshotViewerDialog
+from sniply.ui.overlay import RegionOverlay
+from sniply.ui.session_dialog import NewSessionDialog, OpenSessionDialog
+from sniply.ui.settings_dialog import SettingsDialog
 
 _ICON_SIZE = QSize(18, 18)
 
@@ -53,7 +53,7 @@ _ICON_SIZE = QSize(18, 18)
 # app's own storage, not something the user picks. This follows the
 # standard Windows convention for per-user application data rather
 # than cluttering the user's home folder directly.
-APP_DATA_ROOT = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "SlideCapture" / "Sessions"
+APP_DATA_ROOT = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "Sniply" / "Sessions"
 
 # Where exported PDFs/images default to -- a deliberate, separate
 # choice the user makes only when they're ready to hand off a
@@ -64,7 +64,7 @@ DEFAULT_EXPORT_DIR = Path.home() / "Downloads"
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("SlideCapture")
+        self.setWindowTitle("Sniply")
         self.resize(1040, 720)
         self.setMinimumSize(640, 420)
 
@@ -138,7 +138,7 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(16, 16, 16, 16)
         root.setSpacing(12)
 
-        heading = QLabel("SlideCapture")
+        heading = QLabel("Sniply")
         heading.setObjectName("heading")
         root.addWidget(heading)
 
@@ -675,7 +675,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Nothing to Export", "No screenshots are selected for export.")
             return
         DEFAULT_EXPORT_DIR.mkdir(parents=True, exist_ok=True)
-        default_name = f"{self.session_name or 'SlideCapture'}.pdf"
+        default_name = f"{self.session_name or 'Sniply'}.pdf"
         default_path = DEFAULT_EXPORT_DIR / default_name
         output, _ = QFileDialog.getSaveFileName(self, "Export PDF", str(default_path), "PDF Files (*.pdf)")
         if not output:

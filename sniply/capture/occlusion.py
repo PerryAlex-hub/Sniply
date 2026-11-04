@@ -2,7 +2,7 @@
 by a different APPLICATION than whatever was there when capture
 started.
 
-Why this matters: SlideCapture captures a fixed rectangle of SCREEN
+Why this matters: Sniply captures a fixed rectangle of SCREEN
 pixels, not "the PowerPoint/Zoom window" specifically -- the app has
 no notion of which application owns that content (see region.py and
 the project spec: region selection is manual, by design). If you
@@ -40,7 +40,7 @@ applications entirely) without new dependencies.
 import ctypes
 from ctypes import wintypes
 
-from slidecapture.capture.region import Region
+from sniply.capture.region import Region
 
 _user32 = ctypes.windll.user32
 
@@ -85,7 +85,7 @@ def exclude_window_from_capture(hwnd: int) -> bool:
     """Call once a window's native handle exists (i.e. after it has
     been shown at least once). Returns False (without raising) on
     Windows versions that don't support this -- it's a nice-to-have
-    for SlideCapture's own floating control bar, not essential
+    for Sniply's own floating control bar, not essential
     functionality that should crash the app if unavailable.
     """
     try:

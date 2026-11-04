@@ -1,7 +1,7 @@
 """Stability tracking: decide when a run of captured frames has
 "settled" into something worth evaluating as a save candidate.
 
-This is what prevents SlideCapture from saving a screenshot mid-fade
+This is what prevents Sniply from saving a screenshot mid-fade
 during a slide transition. The rule is simple and deliberately dumb:
 a candidate is only accepted once N consecutive ticks were each
 "boring" relative to the one before (frame-to-frame diff below
@@ -14,7 +14,7 @@ import logging
 
 import numpy as np
 
-from slidecapture.detection.frame_diff import mean_abs_diff
+from sniply.detection.frame_diff import mean_abs_diff
 
 logger = logging.getLogger(__name__)
 

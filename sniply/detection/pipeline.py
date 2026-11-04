@@ -17,11 +17,11 @@ from enum import Enum, auto
 
 import numpy as np
 
-from slidecapture.config.defaults import DetectionConfig
-from slidecapture.detection.frame_diff import downscale_grayscale
-from slidecapture.detection.phash import compute_phash, hamming_distance
-from slidecapture.detection.ssim import compute_ssim_gray
-from slidecapture.detection.stability import StabilityTracker
+from sniply.config.defaults import DetectionConfig
+from sniply.detection.frame_diff import downscale_grayscale
+from sniply.detection.phash import compute_phash, hamming_distance
+from sniply.detection.ssim import compute_ssim_gray
+from sniply.detection.stability import StabilityTracker
 
 logger = logging.getLogger(__name__)
 

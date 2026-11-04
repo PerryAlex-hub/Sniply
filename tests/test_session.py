@@ -3,8 +3,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from slidecapture.storage.screenshot_store import save_screenshot
-from slidecapture.storage.session import SessionStore
+from sniply.storage.screenshot_store import save_screenshot
+from sniply.storage.session import SessionStore
 
 
 @pytest.fixture

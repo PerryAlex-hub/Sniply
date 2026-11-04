@@ -1,5 +1,5 @@
-from slidecapture.config.defaults import DetectionConfig
-from slidecapture.detection.pipeline import Decision, DetectionPipeline
+from sniply.config.defaults import DetectionConfig
+from sniply.detection.pipeline import Decision, DetectionPipeline
 from tests.fixtures.synthetic import make_slide
 
 
