@@ -32,8 +32,10 @@ python main.py
 
 ```powershell
 pip install pyinstaller
-pyinstaller --name SlideCapture --windowed --onefile main.py
+pyinstaller --name SlideCapture --windowed --onefile --icon assets/icon.ico --add-data "assets;assets" main.py
 ```
+
+`--icon` sets the `.exe`'s own icon (File Explorer, taskbar); `--add-data` bundles `assets/icon.png` so the app can also set its in-app window icon at runtime (see `main.py`'s `_resource_path` helper, which resolves assets correctly both when run from source and from the frozen executable).
 
 The standalone executable is written to `dist/SlideCapture.exe` — it bundles Python and all dependencies, so it runs on a machine with no Python installed. That's what gets attached to a GitHub Release for distribution.
 

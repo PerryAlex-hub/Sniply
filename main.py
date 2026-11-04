@@ -4,12 +4,24 @@ import logging
 import sys
 from pathlib import Path
 
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from slidecapture.ui.main_window import MainWindow
 from slidecapture.ui.theme import STYLESHEET
 
 LOG_PATH = Path(__file__).parent / "slidecapture_debug.log"
+
+
+def _resource_path(relative: str) -> Path:
+    """Resolves a bundled asset both when running from source and
+    when running as a PyInstaller-frozen executable -- a --onefile
+    build unpacks its bundled data (see the --add-data build flag in
+    README.md) into a temp dir at sys._MEIPASS at startup, which
+    doesn't exist when just running `python main.py` directly.
+    """
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+    return base / relative
 
 
 def _configure_logging() -> None:
@@ -33,6 +45,11 @@ def main() -> int:
     _configure_logging()
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLESHEET)
+
+    icon_path = _resource_path("assets/icon.png")
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
+
     window = MainWindow()
     window.show()
     return app.exec()
