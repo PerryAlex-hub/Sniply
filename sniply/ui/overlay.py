@@ -21,8 +21,9 @@ from PySide6.QtCore import QPoint, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QScreen
 from PySide6.QtWidgets import QWidget
 
-from sniply.capture.occlusion import process_at_region_center
-from sniply.capture.region import InvalidRegionError, Region
+from sniply.capture.occlusion import pid_of_window, window_at_region_center
+from sniply.capture.region import CaptureAnchor, InvalidRegionError, Region
+from sniply.capture.window_capture import get_window_rect
 
 
 class RegionOverlay(QWidget):
@@ -37,11 +38,11 @@ class RegionOverlay(QWidget):
     startup while the widget is still hidden, where nobody sees it.
     """
 
-    # The int is a "target process" hint -- the PID owning the window
-    # at the region's center the instant this overlay (and whatever
-    # was behind it, i.e. the still-hidden main window) is out of the
-    # way. See mouseReleaseEvent for why this exact moment matters.
-    region_selected = Signal(Region, int)
+    # The CaptureAnchor records which window (if any) owns the region's
+    # content the instant this overlay (and whatever was behind it,
+    # i.e. the still-hidden main window) is out of the way. See
+    # mouseReleaseEvent for why this exact moment matters.
+    region_selected = Signal(Region, CaptureAnchor)
     selection_cancelled = Signal()
 
     def __init__(self):
@@ -139,7 +140,7 @@ class RegionOverlay(QWidget):
             self.hide()
             return
 
-        # Hide BEFORE resolving the target process, and BEFORE emitting
+        # Hide BEFORE resolving the target window, and BEFORE emitting
         # the signal: the main window is still hidden at this instant
         # too (see ui/main_window.py's _on_select_area), so this is
         # the one moment where WindowFromPoint can actually see past
@@ -149,8 +150,34 @@ class RegionOverlay(QWidget):
         # found Sniply's own process instead, since clicking that
         # button necessarily means Sniply is what's focused.
         self.hide()
-        target_pid = process_at_region_center(region)
-        self.region_selected.emit(region, target_pid)
+        anchor = self._resolve_anchor(region)
+        self.region_selected.emit(region, anchor)
+
+    def _resolve_anchor(self, region: Region) -> CaptureAnchor:
+        """Figures out which window (if any) owns the selected region,
+        and where that region sits relative to the window's own
+        top-left corner -- so the worker can capture the window's
+        content directly later (see capture/window_capture.py)
+        instead of reading screen pixels, which is what makes capture
+        keep working even when something else covers the window on
+        screen afterward.
+        """
+        hwnd = window_at_region_center(region)
+        if not hwnd:
+            return CaptureAnchor()
+
+        pid = pid_of_window(hwnd)
+        window_rect = get_window_rect(hwnd)
+        if window_rect is None:
+            return CaptureAnchor(pid=pid)
+
+        window_left, window_top, _, _ = window_rect
+        return CaptureAnchor(
+            pid=pid,
+            hwnd=hwnd,
+            offset_x=region.left - window_left,
+            offset_y=region.top - window_top,
+        )
 
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key_Escape:

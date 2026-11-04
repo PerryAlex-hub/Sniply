@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from sniply.capture.region import InvalidRegionError, Region
+from sniply.capture.region import CaptureAnchor, InvalidRegionError, Region
 from sniply.capture.worker import CaptureController
 from sniply.config.defaults import AppConfig
 from sniply.detection.pipeline import DetectionPipeline
@@ -74,12 +74,12 @@ class MainWindow(QMainWindow):
         self.session_name: str | None = None
         self.save_dir: Path | None = None
         self.region: Region | None = None
-        # The process (PID) that actually owned the window at the
-        # capture region when it was selected (see
-        # RegionOverlay.mouseReleaseEvent) -- this, not whatever's in
-        # front when Start Capture is later clicked, is the correct
-        # baseline for the occlusion guard.
-        self._target_pid_hint = 0
+        # Which window (if any) owns the selected region, resolved
+        # once at selection time (see RegionOverlay.mouseReleaseEvent)
+        # -- this, not whatever's in front when Start Capture is later
+        # clicked, is the correct basis for both the occlusion guard
+        # and (when a window was resolved) direct window capture.
+        self._anchor = CaptureAnchor()
         self.controller: CaptureController | None = None
         # Created once and reused for every region selection -- see
         # RegionOverlay's docstring for why (avoids re-creating a
@@ -460,12 +460,12 @@ class MainWindow(QMainWindow):
         self._overlay.show_revealed()
         self._overlay.activateWindow()
 
-    def _on_region_selected(self, region: Region, target_pid_hint: int) -> None:
+    def _on_region_selected(self, region: Region, anchor: CaptureAnchor) -> None:
         self.show()
         self.raise_()
         self.activateWindow()
         self.region = region
-        self._target_pid_hint = target_pid_hint
+        self._anchor = anchor
         self.status_label.setText(f"Status: Region selected ({region.width}x{region.height})")
         self._set_capture_controls_enabled(has_region=True, is_capturing=False)
         self._show_region_preview(region)
@@ -526,7 +526,7 @@ class MainWindow(QMainWindow):
             # in visually with 100+ raw per-tick capture files.
             self.save_dir / "screenshots",
             self.config.detection.capture_interval_ms,
-            self._target_pid_hint,
+            self._anchor,
         )
         self.controller.worker.screenshot_saved.connect(self._on_screenshot_saved)
         self.controller.worker.duplicate_ignored.connect(self._on_duplicate_ignored)

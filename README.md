@@ -8,7 +8,7 @@ Point it at a region of your screen, hit **Start Capture**, and it saves a new s
 
 - **Region-based capture** — select any rectangle of your screen (Zoom window, PowerPoint, a browser tab) via a Snipping-Tool-style overlay.
 - **Smart deduplication** — a multi-stage pipeline (frame-diff stability check → perceptual hashing → SSIM) saves a slide once, recognizes when the lecturer returns to an earlier slide, and tells genuinely different slides apart even when they share a similar layout.
-- **Occlusion-aware** — if another window (e.g. you Alt-Tab to Chrome) covers the capture region, it pauses automatically instead of saving the wrong content, and resumes the instant your presentation is back in view.
+- **Keeps capturing while you multitask** — when the selected area is inside a real window (Zoom, PowerPoint, a browser), Sniply captures that window's content directly rather than reading screen pixels, so it keeps saving slides even if you switch away to code, browse, or open another app on top of it. Falls back to a pause-when-covered screen-region mode if the selection isn't tied to a specific window.
 - **Floating control bar** — once capture starts, a small draggable bar (Pause/Resume/Stop/Manual Capture) replaces the full window, so you don't need the app on screen while watching a lecture. It's excluded from the capture itself, so it never ends up in a screenshot even if you drag it over the capture region.
 - **Session management** — screenshots and metadata autosave continuously (crash-safe), with a gallery to review, reorder (drag and drop), batch-delete, and select which screenshots to export.
 - **Export** — combine selected screenshots into a single PDF, or export them as individual images.
@@ -66,7 +66,7 @@ Defaults live in [`sniply/config/defaults.py`](sniply/config/defaults.py).
 
 ```
 sniply/
-  capture/      screen grabbing, region selection, occlusion detection
+  capture/      screen/window grabbing, region selection, occlusion detection
   detection/    stability tracking, perceptual hashing, SSIM, the dedup pipeline
   storage/      session persistence (SQLite) and screenshot autosave
   export/       PDF and image export
@@ -86,9 +86,10 @@ pytest
 
 ## Known limitations
 
-- Windows only (uses Win32 APIs for occlusion detection and capture exclusion).
+- Windows only (uses Win32 APIs for window capture, occlusion detection, and capture exclusion).
 - Assumes uniform DPI scaling across monitors; mixed-DPI multi-monitor setups may see minor region drift.
 - Capturing a true DirectX-exclusive fullscreen window can occasionally fail to update — if that happens, use windowed presentation mode instead of a full-screen slideshow.
+- Window-capture mode needs the target window to still exist and not be fully minimized; if it's closed mid-session, capture pauses with a clear message rather than silently failing.
 
 ## Publishing a new release
 

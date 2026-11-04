@@ -39,3 +39,24 @@ class Region:
     def as_mss_dict(self) -> dict:
         """mss expects a dict with these exact keys."""
         return {"left": self.left, "top": self.top, "width": self.width, "height": self.height}
+
+
+@dataclass(frozen=True)
+class CaptureAnchor:
+    """Where and how to capture a selected Region, resolved once at
+    selection time (see ui/overlay.py's mouseReleaseEvent).
+
+    If `hwnd` is non-zero, the worker captures that window's content
+    directly (see capture/window_capture.py) and crops to
+    (offset_x, offset_y, region.width, region.height) relative to the
+    window's own top-left corner, rather than reading screen pixels --
+    this keeps capturing correctly even if another window is later
+    drawn on top of it on screen. `pid` is kept as a fallback
+    occlusion-guard baseline for when hwnd can't be resolved (e.g. the
+    selection was over bare desktop).
+    """
+
+    pid: int = 0
+    hwnd: int = 0
+    offset_x: int = 0
+    offset_y: int = 0

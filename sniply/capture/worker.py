@@ -19,7 +19,8 @@ import numpy as np
 from PySide6.QtCore import QObject, QThread, QTimer, Signal, Slot
 
 from sniply.capture.occlusion import process_at_region_center
-from sniply.capture.region import Region
+from sniply.capture.region import CaptureAnchor, Region
+from sniply.capture.window_capture import capture_window, window_exists
 from sniply.detection.pipeline import Decision, DetectionPipeline
 from sniply.storage.screenshot_store import save_screenshot
 from sniply.storage.session import SessionStore
@@ -27,8 +28,15 @@ from sniply.storage.session import SessionStore
 logger = logging.getLogger(__name__)
 
 # After this many consecutive grab failures (e.g. the selected monitor
-# was disconnected), auto-pause instead of silently retrying forever.
+# was disconnected, or the captured window was closed), auto-pause
+# instead of silently retrying forever.
 MAX_CONSECUTIVE_ERRORS = 3
+
+
+class CaptureGrabError(Exception):
+    """Raised by _grab_frame for window-capture failures (window
+    closed, resized smaller than the selected area, etc.) -- handled
+    identically to mss.ScreenShotError by _tick/manual_capture."""
 
 
 class CaptureWorker(QObject):
@@ -51,7 +59,7 @@ class CaptureWorker(QObject):
         session_id: int,
         save_dir: Path,
         interval_ms: int,
-        initial_target_pid: int = 0,
+        anchor: CaptureAnchor = CaptureAnchor(),
     ):
         super().__init__()
         self._region = region
@@ -67,18 +75,30 @@ class CaptureWorker(QObject):
         self._paused = False
         self._consecutive_errors = 0
 
-        # The process (PID) owning whatever's at the capture region --
-        # see occlusion.py. This MUST come from outside (resolved by
-        # the UI at region-selection time, the one moment Sniply's
-        # own windows are both out of the way) rather than being
-        # re-resolved here at start()/resume() time: by definition,
-        # whoever calls start()/resume() just clicked a button in
-        # Sniply's own window, so "whatever's in front right
-        # now" would always resolve to Sniply itself, not the
-        # user's actual presentation -- that was the bug that made the
-        # occlusion guard treat the real target as an intruder the
-        # instant the user switched to it.
-        self._target_pid = initial_target_pid
+        # This MUST come from outside (resolved by the UI at
+        # region-selection time, the one moment Sniply's own windows
+        # are both out of the way) rather than being re-resolved here
+        # at start()/resume() time: by definition, whoever calls
+        # start()/resume() just clicked a button in Sniply's own
+        # window, so "whatever's in front right now" would always
+        # resolve to Sniply itself, not the user's actual
+        # presentation -- that was the bug that made the occlusion
+        # guard treat the real target as an intruder the instant the
+        # user switched to it.
+        self._target_pid = anchor.pid
+        # When non-zero, frames come from capturing this window's
+        # content directly (see window_capture.py) rather than reading
+        # screen pixels -- this is what keeps capture working even
+        # when another window is later drawn on top of it on screen,
+        # since PrintWindow asks the target window to render its own
+        # content rather than reading whatever's currently composited
+        # at those screen coordinates. The occlusion guard below (and
+        # its "something's covering it, pause" behavior) is only
+        # meaningful for the mss/screen-region fallback used when no
+        # window could be resolved at selection time.
+        self._target_hwnd = anchor.hwnd
+        self._offset_x = anchor.offset_x
+        self._offset_y = anchor.offset_y
         self._occluded = False
         # True for exactly one tick right after the target becomes
         # visible (first tick ever, or the first tick after an
@@ -108,15 +128,16 @@ class CaptureWorker(QObject):
         self._timer.setInterval(self._interval_ms)
         self._timer.timeout.connect(self._tick)
         self._timer.start()
-        if self._target_pid == 0:
+        if self._target_hwnd == 0 and self._target_pid == 0:
             # No hint was available (e.g. resuming a session without a
             # fresh region selection) -- best effort, with the known
             # caveat that this will incorrectly anchor on Sniply's
             # own process since that's what's in front right now.
             self._target_pid = process_at_region_center(self._region)
         logger.debug(
-            "worker started: region=%s interval_ms=%d target_pid=%s",
-            self._region, self._interval_ms, self._target_pid,
+            "worker started: region=%s interval_ms=%d target_pid=%s target_hwnd=%s mode=%s",
+            self._region, self._interval_ms, self._target_pid, self._target_hwnd,
+            "window-capture" if self._target_hwnd else "screen-region",
         )
         self.status_changed.emit("Capturing")
 
@@ -158,7 +179,7 @@ class CaptureWorker(QObject):
         explicit request is a strong enough signal on its own."""
         try:
             frame = self._grab_frame()
-        except mss.ScreenShotError as exc:
+        except (mss.ScreenShotError, CaptureGrabError) as exc:
             self.error.emit(f"Manual capture failed: {exc}")
             return
         self._save(frame)
@@ -170,14 +191,19 @@ class CaptureWorker(QObject):
 
         try:
             frame = self._grab_frame()
-        except mss.ScreenShotError as exc:
+        except (mss.ScreenShotError, CaptureGrabError) as exc:
             self._consecutive_errors += 1
             logger.warning("tick: grab failed: %s", exc)
             self.error.emit(f"Capture failed: {exc}")
             if self._consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
                 self.pause()
+                reason = (
+                    "the captured window was closed or is no longer available"
+                    if self._target_hwnd
+                    else "monitor disconnected or locked?"
+                )
                 self.error.emit(
-                    "Capture region is unavailable (monitor disconnected or locked?); "
+                    f"Capture region is unavailable ({reason}); "
                     "pausing automatically. Reselect the area and resume."
                 )
             return
@@ -225,6 +251,15 @@ class CaptureWorker(QObject):
         of "last real frame" stays anchored to the last frame of
         actual target content, not whatever briefly covered it.
 
+        Only meaningful for the mss/screen-region fallback. When a
+        target window was resolved (self._target_hwnd != 0), frames
+        come from capturing that window's content directly (see
+        _grab_frame/window_capture.py), which already sees straight
+        through anything drawn on top of it on screen -- there is
+        nothing to be "occluded" by in that mode, so this always
+        reports not-occluded and the whole covered-by-another-window
+        pause behavior simply doesn't apply.
+
         Compares by owning process rather than exact window handle so
         that an app swapping to a different top-level window for the
         same content -- notably PowerPoint, which creates a brand new
@@ -241,6 +276,9 @@ class CaptureWorker(QObject):
         even though nothing about what's actually being captured
         changed.
         """
+        if self._target_hwnd != 0:
+            return False  # window-capture mode: nothing can occlude it
+
         if self._target_pid == 0:
             return False  # couldn't resolve a target process; fail open rather than block capture
 
@@ -277,9 +315,39 @@ class CaptureWorker(QObject):
         self.screenshot_saved.emit(str(path))
 
     def _grab_frame(self) -> np.ndarray:
+        if self._target_hwnd:
+            return self._grab_from_window()
         shot = self._sct.grab(self._region.as_mss_dict())
         bgra = np.array(shot)
         return cv2.cvtColor(bgra, cv2.COLOR_BGRA2BGR)
+
+    def _grab_from_window(self) -> np.ndarray:
+        """Captures the target window's own content directly (see
+        window_capture.py) and crops to the sub-rectangle the user
+        originally selected within it. This is what keeps capture
+        correct even when another window is drawn on top of the
+        target on screen afterward -- PrintWindow asks the target to
+        render itself rather than reading whatever's currently
+        composited at a screen location.
+        """
+        if not window_exists(self._target_hwnd):
+            raise CaptureGrabError("the captured window no longer exists")
+
+        full = capture_window(self._target_hwnd)
+        if full is None:
+            raise CaptureGrabError("failed to capture the target window's content")
+
+        x0, y0 = self._offset_x, self._offset_y
+        w, h = self._region.width, self._region.height
+        if x0 < 0 or y0 < 0:
+            raise CaptureGrabError("the captured window moved/resized in a way that invalidated the selection")
+
+        cropped = full[y0:y0 + h, x0:x0 + w]
+        if cropped.shape[0] != h or cropped.shape[1] != w:
+            raise CaptureGrabError(
+                "the captured window is now smaller than the originally selected area"
+            )
+        return cropped
 
 
 class CaptureController(QObject):
@@ -312,12 +380,12 @@ class CaptureController(QObject):
         session_id: int,
         save_dir: Path,
         interval_ms: int,
-        initial_target_pid: int = 0,
+        anchor: CaptureAnchor = CaptureAnchor(),
     ):
         super().__init__()
         self.thread = QThread()
         self.worker = CaptureWorker(
-            region, pipeline, db_path, session_id, save_dir, interval_ms, initial_target_pid
+            region, pipeline, db_path, session_id, save_dir, interval_ms, anchor
         )
         self.worker.moveToThread(self.thread)
 

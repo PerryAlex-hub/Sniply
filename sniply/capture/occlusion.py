@@ -48,16 +48,21 @@ _user32 = ctypes.windll.user32
 # c_int. HWND is a pointer and 64 bits wide on 64-bit Windows, so
 # without this explicit prototype, the call below would silently
 # truncate every returned handle to its low 32 bits.
+_GA_ROOT = 2
+
 _user32.WindowFromPoint.restype = wintypes.HWND
 _user32.WindowFromPoint.argtypes = [wintypes.POINT]
+_user32.GetAncestor.restype = wintypes.HWND
+_user32.GetAncestor.argtypes = [wintypes.HWND, ctypes.c_int]
 _user32.GetWindowThreadProcessId.restype = wintypes.DWORD
 _user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
 
 
-def process_at_region_center(region: Region) -> int:
-    """Returns the process id (PID) owning whatever window currently
-    occupies the center of `region`, or 0 if there's none (e.g. bare
-    desktop) or the lookup fails."""
+def window_at_region_center(region: Region) -> int:
+    """Returns the HWND of the top-level window currently occupying
+    the center of `region`, or 0 if there's none (e.g. bare desktop)
+    or the lookup fails. See window_capture.py, which uses this to
+    find the actual window to capture directly."""
     point = wintypes.POINT(
         region.left + region.width // 2,
         region.top + region.height // 2,
@@ -65,9 +70,24 @@ def process_at_region_center(region: Region) -> int:
     hwnd = _user32.WindowFromPoint(point)
     if not hwnd:
         return 0
+    root = _user32.GetAncestor(hwnd, _GA_ROOT)
+    return root or hwnd
+
+
+def pid_of_window(hwnd: int) -> int:
+    """Returns the process id owning `hwnd`, or 0 if invalid."""
+    if not hwnd:
+        return 0
     pid = wintypes.DWORD(0)
-    _user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    _user32.GetWindowThreadProcessId(wintypes.HWND(hwnd), ctypes.byref(pid))
     return pid.value
+
+
+def process_at_region_center(region: Region) -> int:
+    """Returns the process id (PID) owning whatever window currently
+    occupies the center of `region`, or 0 if there's none (e.g. bare
+    desktop) or the lookup fails."""
+    return pid_of_window(window_at_region_center(region))
 
 
 # Marks a window as visible to the human user on the real display but
