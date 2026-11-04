@@ -11,6 +11,7 @@ capture testable without a display.
 
 import os
 import time
+import webbrowser
 from pathlib import Path
 
 import numpy as np
@@ -46,6 +47,8 @@ from sniply.ui.viewer import ScreenshotViewerDialog
 from sniply.ui.overlay import RegionOverlay
 from sniply.ui.session_dialog import NewSessionDialog, OpenSessionDialog
 from sniply.ui.settings_dialog import SettingsDialog
+from sniply.update_checker import UpdateInfo, start_update_check
+from sniply.__version__ import __version__
 
 _ICON_SIZE = QSize(18, 18)
 
@@ -109,8 +112,17 @@ class MainWindow(QMainWindow):
         self._duration_timer.setInterval(1000)
         self._duration_timer.timeout.connect(self._update_duration_label)
 
+        self._pending_update: UpdateInfo | None = None
+
         self._build_ui()
         self._set_capture_controls_enabled(has_region=False, is_capturing=False)
+
+        # Non-blocking: runs on a background thread (see
+        # update_checker.py) so a slow/unreachable GitHub never delays
+        # opening the app. _update_check_thread must be kept alive as
+        # an attribute for the duration of the check, or Python may
+        # garbage-collect the QThread mid-request.
+        self._update_check_thread = start_update_check(self._on_update_available)
 
     # ---- UI construction ----------------------------------------
 
@@ -153,6 +165,25 @@ class MainWindow(QMainWindow):
         self.get_started_banner.setObjectName("banner")
         self.get_started_banner.setWordWrap(True)
         root.addWidget(self.get_started_banner)
+
+        # Shown only when a background check (see update_checker.py)
+        # finds a newer release on GitHub than this build -- hidden by
+        # default, since most launches won't have an update waiting.
+        self.update_banner = QWidget()
+        self.update_banner.setObjectName("banner")
+        self.update_banner.setVisible(False)
+        update_banner_layout = QHBoxLayout(self.update_banner)
+        self.update_banner_label = QLabel("")
+        self.update_banner_label.setWordWrap(True)
+        update_banner_layout.addWidget(self.update_banner_label, stretch=1)
+        self.update_download_button = QPushButton("Download")
+        self.update_download_button.setObjectName("primaryButton")
+        self.update_download_button.clicked.connect(self._on_download_update_clicked)
+        update_banner_layout.addWidget(self.update_download_button)
+        self.update_dismiss_button = QPushButton("Dismiss")
+        self.update_dismiss_button.clicked.connect(lambda: self.update_banner.setVisible(False))
+        update_banner_layout.addWidget(self.update_dismiss_button)
+        root.addWidget(self.update_banner)
 
         # Two-pane layout below the heading/banner: a left pane for
         # session/preview/capture controls (everything involved in
@@ -336,6 +367,25 @@ class MainWindow(QMainWindow):
 
     def _update_get_started_banner(self) -> None:
         self.get_started_banner.setVisible(self.session_id is None)
+
+    # ---- Update checking --------------------------------------------
+
+    def _on_update_available(self, info: UpdateInfo) -> None:
+        self._pending_update = info
+        self.update_banner_label.setText(
+            f"A new version of Sniply is available (v{info.version}, you have v{__version__})."
+        )
+        self.update_banner.setVisible(True)
+
+    def _on_download_update_clicked(self) -> None:
+        # Opens the GitHub release page rather than silently
+        # downloading and replacing the running executable -- that's
+        # a deliberate, separate decision (self-replacing a running
+        # binary) that shouldn't happen without the user explicitly
+        # choosing to go further than "let me know when there's
+        # something new."
+        if self._pending_update is not None:
+            webbrowser.open(self._pending_update.release_url)
 
     # ---- Session management ---------------------------------------
 
