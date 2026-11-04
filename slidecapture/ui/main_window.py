@@ -14,15 +14,20 @@ import time
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QSize, QTimer, Qt
 from PySide6.QtGui import QCursor, QGuiApplication, QImage, QPixmap
 from PySide6.QtWidgets import (
     QFileDialog,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QSplitter,
+    QStyle,
     QVBoxLayout,
     QWidget,
 )
@@ -36,10 +41,13 @@ from slidecapture.export.pdf_export import EmptyExportError, export_pdf
 from slidecapture.storage.session import SessionStore
 from slidecapture.ui.floating_bar import FloatingControlBar
 from slidecapture.ui.gallery import GalleryWidget
+from slidecapture.ui.icons import camera_icon, crosshair_icon, gear_icon, standard_icon
 from slidecapture.ui.viewer import ScreenshotViewerDialog
 from slidecapture.ui.overlay import RegionOverlay
 from slidecapture.ui.session_dialog import NewSessionDialog, OpenSessionDialog
 from slidecapture.ui.settings_dialog import SettingsDialog
+
+_ICON_SIZE = QSize(18, 18)
 
 # Where raw session data (screenshots + session.db) lives -- the
 # app's own storage, not something the user picks. This follows the
@@ -57,7 +65,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SlideCapture")
-        self.resize(900, 650)
+        self.resize(1040, 720)
+        self.setMinimumSize(640, 420)
 
         self.config = AppConfig()
         self.store: SessionStore | None = None
@@ -106,35 +115,123 @@ class MainWindow(QMainWindow):
     # ---- UI construction ----------------------------------------
 
     def _build_ui(self) -> None:
-        central = QWidget()
-        self.setCentralWidget(central)
-        root = QVBoxLayout(central)
+        # Everything lives inside a QScrollArea rather than directly on
+        # the window: if the window gets resized (or opened on) smaller
+        # than the content needs, it scrolls instead of clipping
+        # buttons or squeezing the layout into an unusable mess.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        # Content is built to wrap/shrink to whatever width it's given
+        # (word-wrapped labels, a flowing thumbnail grid, a splitter
+        # with real minimum sizes rather than fixed ones), so this
+        # should rarely if ever need to actually appear -- kept as
+        # "as needed" rather than disabled outright so an extreme
+        # window size degrades into a scrollbar instead of silently
+        # clipped, inaccessible content.
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.setCentralWidget(scroll)
 
-        # Session row
-        session_row = QHBoxLayout()
+        content = QWidget()
+        scroll.setWidget(content)
+        root = QVBoxLayout(content)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(12)
+
+        heading = QLabel("SlideCapture")
+        heading.setObjectName("heading")
+        root.addWidget(heading)
+
+        # Shown only when there's no active session -- the whole point
+        # is to make "you need a session before capture will work"
+        # impossible to miss, rather than Start Capture just quietly
+        # refusing to do anything with no explanation.
+        self.get_started_banner = QLabel(
+            "Get started: click “New Session” below before selecting "
+            "a capture area -- screenshots can't be saved without one."
+        )
+        self.get_started_banner.setObjectName("banner")
+        self.get_started_banner.setWordWrap(True)
+        root.addWidget(self.get_started_banner)
+
+        # Two-pane layout below the heading/banner: a left pane for
+        # session/preview/capture controls (everything involved in
+        # setting up and running a capture), and a right pane for
+        # reviewing and exporting results (the gallery). Keeping these
+        # visually and spatially separate reflects how they're actually
+        # used -- set up once, then work mostly in the gallery -- rather
+        # than one long undifferentiated stack of controls.
+        #
+        # A QSplitter rather than a fixed-width layout: the user can
+        # drag the divider to whatever balance suits their screen, and
+        # -- more importantly -- a splitter lets each pane shrink down
+        # to its own real minimum size instead of a hardcoded pixel
+        # width fighting the window's actual size.
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        root.addWidget(splitter, stretch=1)
+
+        left_column = QVBoxLayout()
+        left_column.setSpacing(12)
+        left_pane = QWidget()
+        left_pane.setLayout(left_column)
+        left_pane.setMinimumWidth(260)
+        splitter.addWidget(left_pane)
+
+        right_column = QVBoxLayout()
+        right_column.setSpacing(12)
+        right_pane = QWidget()
+        right_pane.setLayout(right_column)
+        right_pane.setMinimumWidth(300)
+        splitter.addWidget(right_pane)
+
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([340, 700])
+
+        # ---- Session ----
+        # Stacked vertically, like the Capture section below, rather
+        # than packed into one horizontal row: this pane is only
+        # 320-380px wide, and three labeled buttons side by side at
+        # that width just truncated into unreadable text ("New Sess...",
+        # "Setting...").
+        session_box = QGroupBox("Session")
+        session_layout = QVBoxLayout(session_box)
         self.new_session_button = QPushButton("New Session")
         self.open_session_button = QPushButton("Open Session")
         self.settings_button = QPushButton("Settings")
-        self.session_label = QLabel("No session open")
+        self.new_session_button.setIcon(standard_icon(self, QStyle.StandardPixmap.SP_FileDialogNewFolder))
+        self.open_session_button.setIcon(standard_icon(self, QStyle.StandardPixmap.SP_DirOpenIcon))
+        self.settings_button.setIcon(gear_icon())
+        self.new_session_button.setObjectName("primaryButton")
         self.new_session_button.clicked.connect(self._on_new_session)
         self.open_session_button.clicked.connect(self._on_open_session)
         self.settings_button.clicked.connect(self._on_open_settings)
-        session_row.addWidget(self.new_session_button)
-        session_row.addWidget(self.open_session_button)
-        session_row.addWidget(self.settings_button)
-        session_row.addStretch()
-        session_row.addWidget(self.session_label)
-        root.addLayout(session_row)
+        for btn in (self.new_session_button, self.open_session_button, self.settings_button):
+            btn.setIconSize(_ICON_SIZE)
+            session_layout.addWidget(btn)
+        self.session_label = QLabel("No session open")
+        self.session_label.setObjectName("muted")
+        self.session_label.setWordWrap(True)
+        session_layout.addWidget(self.session_label)
+        left_column.addWidget(session_box)
 
-        # Preview
+        # ---- Preview ----
+        preview_box = QGroupBox("Preview")
+        preview_layout = QVBoxLayout(preview_box)
         self.preview_label = QLabel("No capture area selected")
         self.preview_label.setAlignment(Qt.AlignCenter)
-        self.preview_label.setMinimumHeight(240)
-        self.preview_label.setStyleSheet("background-color: #222; color: #aaa;")
-        root.addWidget(self.preview_label)
+        self.preview_label.setMinimumHeight(160)
+        self.preview_label.setWordWrap(True)
+        self.preview_label.setStyleSheet(
+            "background-color: #141417; color: #8a8a90; border-radius: 6px;"
+        )
+        preview_layout.addWidget(self.preview_label)
+        left_column.addWidget(preview_box)
 
-        # Capture controls
-        controls_row = QHBoxLayout()
+        # ---- Capture controls ----
+        capture_box = QGroupBox("Capture")
+        capture_layout = QVBoxLayout(capture_box)
         self.select_area_button = QPushButton("Select Capture Area")
         self.reselect_button = QPushButton("Reselect Area")
         self.start_button = QPushButton("Start Capture")
@@ -142,6 +239,16 @@ class MainWindow(QMainWindow):
         self.resume_button = QPushButton("Resume")
         self.stop_button = QPushButton("Stop Capture")
         self.manual_capture_button = QPushButton("Manual Capture")
+
+        self.select_area_button.setIcon(crosshair_icon())
+        self.reselect_button.setIcon(standard_icon(self, QStyle.StandardPixmap.SP_BrowserReload))
+        self.start_button.setIcon(standard_icon(self, QStyle.StandardPixmap.SP_MediaPlay))
+        self.pause_button.setIcon(standard_icon(self, QStyle.StandardPixmap.SP_MediaPause))
+        self.resume_button.setIcon(standard_icon(self, QStyle.StandardPixmap.SP_MediaPlay))
+        self.stop_button.setIcon(standard_icon(self, QStyle.StandardPixmap.SP_MediaStop))
+        self.manual_capture_button.setIcon(camera_icon())
+        self.start_button.setObjectName("primaryButton")
+        self.stop_button.setObjectName("dangerButton")
 
         self.select_area_button.clicked.connect(self._on_select_area)
         self.reselect_button.clicked.connect(self._on_select_area)
@@ -160,38 +267,50 @@ class MainWindow(QMainWindow):
             self.stop_button,
             self.manual_capture_button,
         ):
-            controls_row.addWidget(btn)
-        root.addLayout(controls_row)
+            btn.setIconSize(_ICON_SIZE)
+            capture_layout.addWidget(btn)
+        left_column.addWidget(capture_box)
 
-        # Status / counters
-        status_row = QHBoxLayout()
+        # ---- Status ----
+        status_box = QGroupBox("Status")
+        status_layout = QVBoxLayout(status_box)
         self.status_label = QLabel("Status: Idle")
         self.saved_label = QLabel("Saved: 0")
         self.duplicate_label = QLabel("Duplicates ignored: 0")
         self.duration_label = QLabel("Duration: 00:00:00")
         for lbl in (self.status_label, self.saved_label, self.duplicate_label, self.duration_label):
-            status_row.addWidget(lbl)
-        status_row.addStretch()
-        root.addLayout(status_row)
+            lbl.setObjectName("muted")
+            status_layout.addWidget(lbl)
+        left_column.addWidget(status_box)
+        left_column.addStretch()
 
-        # Gallery
+        # ---- Gallery ----
         self.gallery = GalleryWidget()
-        self.gallery.deletion_requested.connect(self._on_delete_screenshot)
+        self.gallery.deletion_requested.connect(self._on_delete_screenshots)
         self.gallery.reorder_requested.connect(self._on_reorder)
         self.gallery.selection_changed.connect(self._on_selection_changed)
         self.gallery.open_requested.connect(self._on_open_screenshot)
-        root.addWidget(self.gallery)
+        self.gallery.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.gallery.setMinimumHeight(260)
+        right_column.addWidget(self.gallery, stretch=1)
 
-        # Export row
-        export_row = QHBoxLayout()
-        self.export_pdf_button = QPushButton("Export Selected as PDF")
-        self.export_images_button = QPushButton("Export Selected as Images")
+        # ---- Export ----
+        export_box = QGroupBox("Export")
+        export_row = QHBoxLayout(export_box)
+        self.export_pdf_button = QPushButton("Export as PDF")
+        self.export_images_button = QPushButton("Export as Images")
+        self.export_pdf_button.setIcon(standard_icon(self, QStyle.StandardPixmap.SP_DialogSaveButton))
+        self.export_images_button.setIcon(standard_icon(self, QStyle.StandardPixmap.SP_DirIcon))
+        self.export_pdf_button.setIconSize(_ICON_SIZE)
+        self.export_images_button.setIconSize(_ICON_SIZE)
         self.export_pdf_button.clicked.connect(self._on_export_pdf)
         self.export_images_button.clicked.connect(self._on_export_images)
         export_row.addWidget(self.export_pdf_button)
         export_row.addWidget(self.export_images_button)
         export_row.addStretch()
-        root.addLayout(export_row)
+        right_column.addWidget(export_box)
+
+        self._update_get_started_banner()
 
     def _set_capture_controls_enabled(self, has_region: bool, is_capturing: bool, paused: bool = False) -> None:
         has_session = self.session_id is not None
@@ -201,6 +320,22 @@ class MainWindow(QMainWindow):
         self.resume_button.setEnabled(is_capturing and paused)
         self.stop_button.setEnabled(is_capturing)
         self.manual_capture_button.setEnabled(is_capturing)
+
+        # Explain, rather than just silently disabling, why Start can't
+        # be clicked yet -- this was the actual complaint: someone could
+        # select an area, click Start, and nothing would happen with no
+        # indication why, if they'd skipped creating a session first.
+        if is_capturing:
+            self.start_button.setToolTip("Capture is already running.")
+        elif not has_session:
+            self.start_button.setToolTip("Create or open a session first (see the Session section above).")
+        elif not has_region:
+            self.start_button.setToolTip("Select a capture area first.")
+        else:
+            self.start_button.setToolTip("Start capturing the selected area.")
+
+    def _update_get_started_banner(self) -> None:
+        self.get_started_banner.setVisible(self.session_id is None)
 
     # ---- Session management ---------------------------------------
 
@@ -232,6 +367,7 @@ class MainWindow(QMainWindow):
         self.session_label.setText(f"Session: {name}")
         self.gallery.set_screenshots([])
         self._set_capture_controls_enabled(has_region=self.region is not None, is_capturing=False)
+        self._update_get_started_banner()
 
     def _discover_sessions(self) -> list[tuple[int, str, str]]:
         """Scan APP_DATA_ROOT for session folders (each has its own
@@ -285,6 +421,7 @@ class MainWindow(QMainWindow):
         self.duplicate_count = 0
         self._refresh_counters()
         self._set_capture_controls_enabled(has_region=self.region is not None, is_capturing=False)
+        self._update_get_started_banner()
 
     def _on_open_settings(self) -> None:
         dialog = SettingsDialog(self.config.detection, self)
@@ -353,7 +490,20 @@ class MainWindow(QMainWindow):
     # ---- Capture lifecycle -------------------------------------------
 
     def _on_start(self) -> None:
-        if self.region is None or self.session_id is None or self.store is None:
+        # Defensive: the Start button is normally disabled until both
+        # conditions hold (see _set_capture_controls_enabled), but if
+        # this is ever reached anyway, say exactly what's missing
+        # rather than silently doing nothing -- that silent no-op was
+        # the actual complaint this guards against.
+        if self.session_id is None or self.store is None:
+            QMessageBox.information(
+                self, "No Session",
+                "Create or open a session first (see the Session section above) "
+                "before starting a capture.",
+            )
+            return
+        if self.region is None:
+            QMessageBox.information(self, "No Capture Area", "Select a capture area first.")
             return
 
         pipeline = DetectionPipeline(self.config.detection)
@@ -481,10 +631,22 @@ class MainWindow(QMainWindow):
 
     # ---- Gallery actions ----------------------------------------------
 
-    def _on_delete_screenshot(self, screenshot_id: int) -> None:
-        if self.store is not None:
+    def _on_delete_screenshots(self, screenshot_ids: list) -> None:
+        if self.store is None or not screenshot_ids:
+            return
+        if len(screenshot_ids) > 1:
+            reply = QMessageBox.question(
+                self,
+                "Delete Screenshots",
+                f"Delete {len(screenshot_ids)} selected screenshots? This cannot be undone.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
+        for screenshot_id in screenshot_ids:
             self.store.delete_screenshot(screenshot_id)
-            self.gallery.set_screenshots(self.store.list_screenshots(self.session_id))
+        self.gallery.set_screenshots(self.store.list_screenshots(self.session_id))
 
     def _on_reorder(self, ordered_ids: list) -> None:
         if self.store is not None and self.session_id is not None:

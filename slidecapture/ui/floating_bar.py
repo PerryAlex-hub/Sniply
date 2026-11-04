@@ -14,10 +14,13 @@ process (see worker.py): this bar visually sitting over the target
 doesn't actually affect what mss captures underneath it.
 """
 
-from PySide6.QtCore import QPoint, Qt, Signal
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
+from PySide6.QtCore import QPoint, QSize, Qt, Signal
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QStyle, QWidget
 
 from slidecapture.capture.occlusion import exclude_window_from_capture
+from slidecapture.ui.icons import camera_icon, expand_icon, standard_icon
+
+_ICON_SIZE = QSize(15, 15)
 
 
 class FloatingControlBar(QWidget):
@@ -44,10 +47,12 @@ class FloatingControlBar(QWidget):
         self.setAutoFillBackground(True)
         self.setObjectName("floatingBar")
         self.setStyleSheet(
-            "#floatingBar { background-color: rgb(28, 28, 28); }"
-            "QPushButton { color: white; background-color: rgb(60, 60, 60); "
+            "#floatingBar { background-color: rgb(24, 24, 27); border: 1px solid rgb(63, 63, 70); }"
+            "QPushButton { color: white; background-color: rgb(49, 49, 56); "
             "  border: none; padding: 6px 10px; border-radius: 4px; font-size: 12px; }"
-            "QPushButton:hover { background-color: rgb(80, 80, 80); }"
+            "QPushButton:hover { background-color: rgb(63, 63, 70); }"
+            "QPushButton#stopBtn { background-color: rgb(127, 29, 29); }"
+            "QPushButton#stopBtn:hover { background-color: rgb(153, 27, 27); }"
             "QLabel { color: #cccccc; padding: 0 8px; font-size: 12px; }"
         )
 
@@ -56,10 +61,19 @@ class FloatingControlBar(QWidget):
         self.pause_button = QPushButton("Pause")
         self.resume_button = QPushButton("Resume")
         self.stop_button = QPushButton("Stop")
+        self.stop_button.setObjectName("stopBtn")
         self.manual_button = QPushButton("Capture Now")
         self.status_label = QLabel("Capturing")
-        self.expand_button = QPushButton("⤢")  # expand/restore glyph
+        self.expand_button = QPushButton()
+        self.expand_button.setIcon(expand_icon())
         self.expand_button.setToolTip("Show full window")
+
+        self.pause_button.setIcon(standard_icon(self, QStyle.StandardPixmap.SP_MediaPause))
+        self.resume_button.setIcon(standard_icon(self, QStyle.StandardPixmap.SP_MediaPlay))
+        self.stop_button.setIcon(standard_icon(self, QStyle.StandardPixmap.SP_MediaStop))
+        self.manual_button.setIcon(camera_icon())
+        for btn in (self.pause_button, self.resume_button, self.stop_button, self.manual_button, self.expand_button):
+            btn.setIconSize(_ICON_SIZE)
 
         self.pause_button.clicked.connect(self.pause_requested)
         self.resume_button.clicked.connect(self.resume_requested)

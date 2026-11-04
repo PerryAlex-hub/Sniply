@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6.QtWidgets import QApplication
 
 from slidecapture.ui.main_window import MainWindow
+from slidecapture.ui.theme import STYLESHEET
 
 LOG_PATH = Path(__file__).parent / "slidecapture_debug.log"
 
@@ -31,6 +32,7 @@ def _configure_logging() -> None:
 def main() -> int:
     _configure_logging()
     app = QApplication(sys.argv)
+    app.setStyleSheet(STYLESHEET)
     window = MainWindow()
     window.show()
     return app.exec()
