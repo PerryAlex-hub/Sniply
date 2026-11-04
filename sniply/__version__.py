@@ -6,4 +6,4 @@ tag, e.g. "0.2.0" for tag "v0.2.0") -- the update checker
 to decide whether to tell the user a newer version exists.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
