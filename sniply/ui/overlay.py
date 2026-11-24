@@ -23,7 +23,7 @@ from PySide6.QtWidgets import QWidget
 
 from sniply.capture.occlusion import pid_of_window, window_at_region_center
 from sniply.capture.region import CaptureAnchor, InvalidRegionError, Region
-from sniply.capture.window_capture import get_window_rect
+from sniply.capture.window_capture import capture_window, get_window_rect
 
 
 class RegionOverlay(QWidget):
@@ -161,6 +161,12 @@ class RegionOverlay(QWidget):
         instead of reading screen pixels, which is what makes capture
         keep working even when something else covers the window on
         screen afterward.
+
+        Also grabs the window's content once, right now, as the
+        reference layout the selection was made against. Those offsets
+        describe the window as it looks at this instant and nothing
+        more; capture/anchor_tracker.py needs this frame to recognise
+        the selected content again after the window reflows around it.
         """
         hwnd = window_at_region_center(region)
         if not hwnd:
@@ -172,11 +178,31 @@ class RegionOverlay(QWidget):
             return CaptureAnchor(pid=pid)
 
         window_left, window_top, _, _ = window_rect
+        offset_x = region.left - window_left
+        offset_y = region.top - window_top
+
+        # Best-effort: a window that refuses PrintWindow still gets a
+        # working fixed-offset capture, just without drift tracking.
+        reference = capture_window(hwnd)
+        if reference is not None:
+            win_h, win_w = reference.shape[:2]
+            if not (
+                0 <= offset_x and 0 <= offset_y
+                and offset_x + region.width <= win_w
+                and offset_y + region.height <= win_h
+            ):
+                # The selection isn't fully inside the window we
+                # resolved (it overlaps the edge, or DPI rounding put
+                # it a pixel out). Tracking a selection we can't even
+                # cut out of the reference frame would be meaningless.
+                reference = None
+
         return CaptureAnchor(
             pid=pid,
             hwnd=hwnd,
-            offset_x=region.left - window_left,
-            offset_y=region.top - window_top,
+            offset_x=offset_x,
+            offset_y=offset_y,
+            reference_window=reference,
         )
 
     def keyPressEvent(self, event) -> None:

@@ -5,7 +5,8 @@ Qt's logical/DPI-scaled coordinates) -- see worker.py and
 ui/overlay.py for why that distinction matters on scaled displays.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 MIN_REGION_SIZE = 20  # pixels; below this a selection is rejected as unusable
 
@@ -54,9 +55,32 @@ class CaptureAnchor:
     drawn on top of it on screen. `pid` is kept as a fallback
     occlusion-guard baseline for when hwnd can't be resolved (e.g. the
     selection was over bare desktop).
+
+    `reference_window` is that window's full content as it looked at
+    the instant of selection. The offsets above are only valid for
+    that exact layout: opening Zoom's chat panel, switching Zoom
+    views, or the presenter resizing their shared window all move the
+    slide area *inside* an otherwise unchanged window, after which the
+    stored offsets point at the wrong thing (which is how chat panels
+    ended up saved as slides). capture/anchor_tracker.py uses this
+    reference frame to re-locate the selected content on the fly, so
+    carrying it costs one frame of memory and buys a crop that follows
+    the content rather than the coordinates.
+
+    It is captured here, at selection time, rather than on the
+    worker's first tick, because that is the only moment the layout is
+    known to match what the user pointed at -- they may well open the
+    chat panel between selecting the area and clicking Start Capture.
     """
 
     pid: int = 0
     hwnd: int = 0
     offset_x: int = 0
     offset_y: int = 0
+    # `compare=False`: this is a numpy array, and numpy's elementwise
+    # `==` would make the generated __eq__ return an array instead of
+    # a bool (and frozen=True's __hash__ would raise outright).
+    # Typed as Any rather than np.ndarray to keep this module -- the
+    # one every other capture module imports -- free of a numpy
+    # import it has no other use for.
+    reference_window: Any = field(default=None, compare=False, repr=False)
