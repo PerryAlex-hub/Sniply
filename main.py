@@ -62,11 +62,21 @@ def _configure_logging() -> None:
     if sys.stdout is not None:
         handlers.append(logging.StreamHandler(sys.stdout))
 
+    # Root at INFO, Sniply's own loggers at DEBUG. basicConfig's level
+    # applies to the ROOT logger, so setting DEBUG there turns on
+    # debug logging for every third-party package in the bundle too.
+    # That was harmless while the log went nowhere, but now that it
+    # goes to a real file it means a per-frame torrent from libraries
+    # whose internals nobody reading this file cares about -- and it
+    # would blow through the rotation limit fast enough to discard
+    # the capture decisions this log exists for.
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         handlers=handlers,
     )
+    logging.getLogger("sniply").setLevel(logging.DEBUG)
+
     # Marks where each run begins, since the file is no longer one
     # run per file. This is the first line anyone reading a bug
     # report needs: which build produced what follows.
@@ -75,6 +85,13 @@ def _configure_logging() -> None:
 
 def main() -> int:
     _configure_logging()
+    log = logging.getLogger("sniply.startup")
+
+    # Startup milestones, logged at INFO. In a windowed build there is
+    # no console and no traceback dialog, so a failure or a hang
+    # between here and the first painted frame is otherwise completely
+    # silent -- the log is the only instrument that exists.
+    log.info("creating QApplication")
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLESHEET)
 
@@ -82,8 +99,11 @@ def main() -> int:
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
 
+    log.info("constructing main window")
     window = MainWindow()
+    log.info("showing main window")
     window.show()
+    log.info("entering event loop")
     return app.exec()
 
 
