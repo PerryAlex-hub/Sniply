@@ -68,16 +68,25 @@ class GalleryWidget(QWidget):
         delete_shortcut.activated.connect(self._delete_highlighted)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Captured Screenshots"))
+        # No title of its own: this widget is placed inside a titled
+        # card (see main_window._build_gallery_card), and a heading
+        # here as well put "SCREENSHOTS" directly above "Captured
+        # Screenshots", which says nothing twice.
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
         hint = QLabel(
             "Double-click to view full size  •  Drag to reorder  •  "
             "Check to include in export  •  Click to highlight (Ctrl/Shift "
-            "for multiple), then Delete key or right-click to remove"
+            "for multiple), then Delete or right-click to remove"
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #888; font-size: 11px;")
+        # Styled by object name rather than inline, so it tracks the
+        # theme's muted colour instead of a hardcoded grey that was
+        # close to, but not the same as, every other secondary label.
+        hint.setObjectName("muted")
         layout.addWidget(hint)
-        layout.addWidget(self._list)
+        layout.addWidget(self._list, stretch=1)
 
         delete_row = QHBoxLayout()
         self.delete_button = QPushButton("Delete Selected")
