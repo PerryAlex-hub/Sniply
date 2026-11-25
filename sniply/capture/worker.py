@@ -18,6 +18,7 @@ import mss
 import numpy as np
 from PySide6.QtCore import QObject, QThread, QTimer, Signal, Slot
 
+from sniply.capture.anchor_tracker import AnchorStatus, AnchorTracker
 from sniply.capture.occlusion import process_at_region_center
 from sniply.capture.region import CaptureAnchor, Region
 from sniply.capture.window_capture import capture_window, window_exists
@@ -39,6 +40,25 @@ class CaptureGrabError(Exception):
     identically to mss.ScreenShotError by _tick/manual_capture."""
 
 
+class AnchorLostError(Exception):
+    """The window was captured fine, but the selected content could no
+    longer be found inside it (see capture/anchor_tracker.py).
+
+    Deliberately NOT a CaptureGrabError: a grab failure means
+    something is broken and escalates to an auto-pause after a few
+    ticks, whereas this is a normal, recoverable condition -- the
+    layout moved in a way the tracker can't resolve yet, and the
+    content may well reappear on the next tick (a transient
+    animation, a menu, a window mid-resize). The right response is to
+    skip this tick's save and say so, not to tear the session down.
+
+    What matters is that it is never swallowed into a save. Before
+    the tracker existed, this situation produced a confident
+    screenshot of whatever happened to sit at the stale offset --
+    which is exactly how Zoom's chat panel got filed as a slide.
+    """
+
+
 class CaptureWorker(QObject):
     screenshot_saved = Signal(str)       # file path of the newly saved screenshot
     duplicate_ignored = Signal()
@@ -50,6 +70,10 @@ class CaptureWorker(QObject):
     # Python value generically, which works for any Python type
     # including numpy arrays.
     preview_frame = Signal(object)        # latest raw frame, for the live preview widget
+    # Emitted only when the tracking state actually changes, not every
+    # tick: this drives a user-visible indicator, and a label that
+    # rewrites itself once a second is noise rather than information.
+    anchor_status_changed = Signal(str)  # one of AnchorStatus's names, lowercased
 
     def __init__(
         self,
@@ -99,6 +123,17 @@ class CaptureWorker(QObject):
         self._target_hwnd = anchor.hwnd
         self._offset_x = anchor.offset_x
         self._offset_y = anchor.offset_y
+        # Those offsets describe the window's layout at selection time
+        # only. The tracker (built in start(), from the reference frame
+        # the overlay captured) re-locates the selected content when
+        # the window reflows around it -- opening Zoom's chat panel,
+        # switching Zoom views, the presenter resizing their share.
+        # Without it the crop stayed at a stale offset and happily
+        # saved whatever moved in underneath, which is the bug this
+        # whole mechanism exists to kill.
+        self._anchor_reference = anchor.reference_window
+        self._tracker: AnchorTracker | None = None
+        self._anchor_status: AnchorStatus | None = None
         self._occluded = False
         # True for exactly one tick right after the target becomes
         # visible (first tick ever, or the first tick after an
@@ -124,6 +159,7 @@ class CaptureWorker(QObject):
         """
         self._store = SessionStore(self._db_path)
         self._sct = mss.MSS()
+        self._build_tracker()
         self._timer = QTimer()
         self._timer.setInterval(self._interval_ms)
         self._timer.timeout.connect(self._tick)
@@ -140,6 +176,33 @@ class CaptureWorker(QObject):
             "window-capture" if self._target_hwnd else "screen-region",
         )
         self.status_changed.emit("Capturing")
+
+    def _build_tracker(self) -> None:
+        """Creates the drift tracker, if this session can have one.
+
+        Only window-capture mode needs it. In screen-region mode the
+        user picked a rectangle of the *screen* and that is exactly
+        what gets grabbed every tick, so there is no coordinate space
+        that can silently shift out from under the selection.
+        """
+        if self._target_hwnd == 0 or self._anchor_reference is None:
+            return
+        try:
+            tracker = AnchorTracker(
+                self._anchor_reference,
+                self._offset_x,
+                self._offset_y,
+                self._region.width,
+                self._region.height,
+            )
+        except Exception:  # defensive: never let tracker setup block capture
+            logger.exception("anchor tracker setup failed; continuing with a fixed offset")
+            return
+        self._tracker = tracker
+        # The reference frame is only needed to build the template;
+        # holding a full-window RGB frame for the whole session after
+        # that is pure memory for nothing.
+        self._anchor_reference = None
 
     @Slot()
     def pause(self) -> None:
@@ -179,6 +242,17 @@ class CaptureWorker(QObject):
         explicit request is a strong enough signal on its own."""
         try:
             frame = self._grab_frame()
+        except AnchorLostError:
+            # Deliberately refused rather than honoured. An explicit
+            # request is a strong signal about *when* to capture, not
+            # about *what* is at a stale offset -- saving the chat
+            # panel because the user pressed the button is still
+            # saving the chat panel.
+            self.error.emit(
+                "Can't tell where the selected area is right now -- the window's layout "
+                "changed. Click Reselect Area to point at it again."
+            )
+            return
         except (mss.ScreenShotError, CaptureGrabError) as exc:
             self.error.emit(f"Manual capture failed: {exc}")
             return
@@ -191,6 +265,16 @@ class CaptureWorker(QObject):
 
         try:
             frame = self._grab_frame()
+        except AnchorLostError as exc:
+            # Not counted toward _consecutive_errors: this is a
+            # recoverable layout condition, not a failing capture
+            # path, and escalating it to an auto-pause would punish
+            # the user for a transient animation. The tracker keeps
+            # searching every tick and re-locks on its own when the
+            # content reappears. Nothing is saved meanwhile, which is
+            # the whole point.
+            logger.info("tick: %s", exc)
+            return
         except (mss.ScreenShotError, CaptureGrabError) as exc:
             self._consecutive_errors += 1
             logger.warning("tick: grab failed: %s", exc)
@@ -323,12 +407,22 @@ class CaptureWorker(QObject):
 
     def _grab_from_window(self) -> np.ndarray:
         """Captures the target window's own content directly (see
-        window_capture.py) and crops to the sub-rectangle the user
-        originally selected within it. This is what keeps capture
-        correct even when another window is drawn on top of the
-        target on screen afterward -- PrintWindow asks the target to
-        render itself rather than reading whatever's currently
-        composited at a screen location.
+        window_capture.py) and returns just the sub-rectangle the user
+        selected -- found afresh in this frame rather than assumed to
+        still be where it was.
+
+        Two separate problems are being solved here, and conflating
+        them is what made the old version wrong:
+
+        - *Something else is on top of the window on screen.*
+          PrintWindow handles this by asking the target to render
+          itself instead of reading composited screen pixels.
+        - *The window rearranged its own insides.* PrintWindow does
+          nothing for this, because the window is perfectly visible --
+          the slide just isn't where it used to be. Opening Zoom's
+          chat panel shrinks the shared-screen area within an
+          identically sized window, and cropping the old rectangle
+          then returns the chat. That's what the tracker fixes.
         """
         if not window_exists(self._target_hwnd):
             raise CaptureGrabError("the captured window no longer exists")
@@ -337,17 +431,85 @@ class CaptureWorker(QObject):
         if full is None:
             raise CaptureGrabError("failed to capture the target window's content")
 
+        if self._tracker is None:
+            return self._crop_fixed(full)
+
+        result = self._tracker.track(full)
+        self._note_anchor_status(result.status)
+        if result.status is AnchorStatus.LOST:
+            raise AnchorLostError(
+                "the selected area is no longer where it was in the window "
+                "(did the layout change?) -- not saving a possibly wrong capture"
+            )
+
+        win_h, win_w = full.shape[:2]
+        x0, y0, w, h = result.offset_x, result.offset_y, result.width, result.height
+        if x0 < 0 or y0 < 0 or x0 + w > win_w or y0 + h > win_h:
+            raise CaptureGrabError(
+                "the captured window moved/resized in a way that invalidated the selection"
+            )
+
+        cropped = full[y0:y0 + h, x0:x0 + w]
+        if (w, h) != (self._region.width, self._region.height):
+            # The content area was rescaled by the reflow (a panel
+            # opening typically shrinks it). Normalise back to the
+            # originally selected pixel size so every frame the
+            # detection pipeline and the gallery see has consistent
+            # dimensions -- otherwise a mid-session reflow would make
+            # every subsequent screenshot a different size from the
+            # ones before it, and the dedup comparisons across that
+            # boundary meaningless.
+            interp = cv2.INTER_AREA if w > self._region.width else cv2.INTER_CUBIC
+            cropped = cv2.resize(
+                cropped, (self._region.width, self._region.height), interpolation=interp
+            )
+        return cropped
+
+    def _crop_fixed(self, full: np.ndarray) -> np.ndarray:
+        """Fallback crop at the selection-time offset, used when no
+        tracker could be built -- the selection covers essentially the
+        whole window (nothing to drift relative to), its surroundings
+        are a flat colour field with no landmark to recognise, or
+        PrintWindow refused at selection time so there was no
+        reference frame. Best-effort by construction.
+        """
         x0, y0 = self._offset_x, self._offset_y
         w, h = self._region.width, self._region.height
         if x0 < 0 or y0 < 0:
-            raise CaptureGrabError("the captured window moved/resized in a way that invalidated the selection")
-
+            raise CaptureGrabError(
+                "the captured window moved/resized in a way that invalidated the selection"
+            )
         cropped = full[y0:y0 + h, x0:x0 + w]
         if cropped.shape[0] != h or cropped.shape[1] != w:
             raise CaptureGrabError(
                 "the captured window is now smaller than the originally selected area"
             )
         return cropped
+
+    def _note_anchor_status(self, status: AnchorStatus) -> None:
+        """Reports tracking state to the UI on change only, and makes
+        a re-anchor behave like the content just appeared.
+
+        The force-evaluate matters: after a re-anchor, the detection
+        pipeline's "previous frame" is a crop from the *old* position,
+        so the normal settle-over-N-ticks path would compare across
+        two unrelated rectangles. Treating the new position as freshly
+        revealed re-runs the same immediate-evaluate path used when
+        the user switches back to a covered window, which is exactly
+        the right semantics -- this is the first frame of this
+        content as it now sits.
+        """
+        if status is self._anchor_status:
+            return
+        self._anchor_status = status
+        self.anchor_status_changed.emit(status.name.lower())
+        if status is AnchorStatus.REANCHORED:
+            self._just_became_visible = True
+            self.status_changed.emit("Re-locked onto the selected area")
+        elif status is AnchorStatus.LOST:
+            self.status_changed.emit("Lost the selected area — not saving")
+        elif status is AnchorStatus.LOCKED:
+            self.status_changed.emit("Capturing")
 
 
 class CaptureController(QObject):
