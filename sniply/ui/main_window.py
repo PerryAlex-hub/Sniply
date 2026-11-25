@@ -715,16 +715,30 @@ class MainWindow(QMainWindow):
         self.activateWindow()
         self.region = region
         self._anchor = anchor
-        tracked = anchor.hwnd != 0 and anchor.reference_window is not None
-        self.region_label.setText(
-            f"{region.width} \u00d7 {region.height} px \u00b7 "
-            + (
-                "locked to the window's content, so it follows the slide if the "
-                "layout shifts"
-                if tracked
-                else "fixed screen area \u2014 capture pauses while another window covers it"
+        # Three distinct outcomes, not two. Whether capture survives
+        # you switching to another app is decided by `hwnd` alone --
+        # that is what selects window capture over reading screen
+        # pixels (see worker._grab_frame). Whether it survives the
+        # window rearranging itself is a separate question, decided
+        # by whether there is a reference frame to track against.
+        # Folding those together told anyone in the middle case that
+        # capture would pause when covered, which is exactly backwards.
+        if anchor.hwnd == 0:
+            detail = (
+                "fixed area of the screen \u2014 capture pauses while another "
+                "window covers it"
             )
-        )
+        elif anchor.reference_window is None:
+            detail = (
+                "locked to the window, so it keeps capturing while you work in "
+                "other apps \u2014 but reselect if its layout changes"
+            )
+        else:
+            detail = (
+                "locked to the window's content, so it keeps capturing while you "
+                "work in other apps and follows the slide if the layout shifts"
+            )
+        self.region_label.setText(f"{region.width} \u00d7 {region.height} px \u00b7 {detail}")
         self._set_status("Area selected", "info")
         self._set_capture_controls_enabled(has_region=True, is_capturing=False)
         self._show_region_preview(region)
